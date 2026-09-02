@@ -8,9 +8,11 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        surface: "#0f1115",
-        panel: "#171a21",
+        surface: "#0a0d14",
+        panel: "#12161f",
         accent: "#7c9eff",
+        glow: "#4fc3ff",
+        amber: "#ff9d3d",
       },
     },
   },

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import ChatMessage from "@/components/ChatMessage";
 import ChatInput from "@/components/ChatInput";
+import JarvisOrb, { type JarvisState } from "@/components/JarvisOrb";
+import ActivityLog, { type LogEntry } from "@/components/ActivityLog";
 import {
   createConversation,
   loadConversations,
@@ -13,6 +15,10 @@ import {
 } from "@/lib/storage";
 import type { Conversation, Source, StoredBlock, StoredMessage } from "@/lib/types";
 
+function timeStamp(): string {
+  return new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -21,7 +27,15 @@ export default function Home() {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [activityLog, setActivityLog] = useState<LogEntry[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  function pushLog(text: string) {
+    setActivityLog((prev) => [...prev.slice(-49), { id: newId(), text, time: timeStamp() }]);
+  }
+
+  const jarvisState: JarvisState = !isStreaming ? "idle" : statusText ? "thinking" : "speaking";
 
   useEffect(() => {
     const loaded = loadConversations();
@@ -107,8 +121,10 @@ export default function Home() {
 
     setIsStreaming(true);
     setStatusText(null);
+    pushLog(`Komut alındı: "${text || "(dosya eki)"}"`.slice(0, 90));
 
     let accumulatedText = "";
+    let respondingLogged = false;
 
     function applyAssistantText(text: string) {
       updateConversation(conversationId, (c) => ({
@@ -158,20 +174,28 @@ export default function Home() {
 
           if (event.type === "status") {
             setStatusText(event.text);
+            pushLog(event.text);
           } else if (event.type === "text") {
+            if (!respondingLogged) {
+              pushLog("Yanıt oluşturuluyor...");
+              respondingLogged = true;
+            }
             setStatusText(null);
             accumulatedText += event.text;
             applyAssistantText(accumulatedText);
           } else if (event.type === "sources") {
             applyAssistantSources(event.sources);
+            pushLog(`${event.sources.length} kaynak bulundu.`);
           } else if (event.type === "error") {
             throw new Error(event.message);
           }
         }
       }
+      pushLog("Yanıt tamamlandı.");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Beklenmeyen bir hata oluştu.";
       setErrorText(message);
+      pushLog(`Hata: ${message}`.slice(0, 90));
       if (!accumulatedText) {
         applyAssistantText(`⚠️ ${message}`);
       }
@@ -193,7 +217,7 @@ export default function Home() {
         onClose={() => setSidebarOpen(false)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b border-white/10 px-3 py-3 md:px-4">
+        <header className="flex items-center gap-3 border-b border-white/10 px-3 py-2.5 md:px-4">
           <button
             onClick={() => setSidebarOpen(true)}
             className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 md:hidden"
@@ -213,18 +237,38 @@ export default function Home() {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
-            {active?.title ?? "Jarvis"}
-          </h1>
+          <JarvisOrb state={jarvisState} size={28} showLabel={false} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold tracking-[0.25em] text-glow">JARVIS</p>
+            <h1 className="truncate text-xs text-slate-500">{active?.title ?? "Yeni sohbet"}</h1>
+          </div>
+          <button
+            onClick={() => setLogOpen(true)}
+            className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 lg:hidden"
+            aria-label="Aktivite günlüğünü aç"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              className="h-5 w-5"
+            >
+              <path d="M4 6h16M4 12h10M4 18h7" />
+            </svg>
+          </button>
         </header>
 
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
           {!active || active.messages.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center text-center text-slate-500">
-              <p className="text-lg font-medium text-slate-300">
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <JarvisOrb state={jarvisState} size={132} />
+              <p className="mt-5 text-lg font-medium text-slate-300">
                 Emrindeyim. Ne yapalım?
               </p>
-              <p className="mt-1 max-w-sm text-sm">
+              <p className="mt-1 max-w-sm text-sm text-slate-500">
                 Bir soru sor, gerektiğinde web&apos;de araştırırım. PDF veya metin dosyası da
                 ekleyebilirsin.
               </p>
@@ -235,7 +279,7 @@ export default function Home() {
             ))
           )}
           {statusText && (
-            <p className="pl-1 text-xs italic text-slate-500">{statusText}</p>
+            <p className="pl-1 text-xs italic text-amber">{statusText}</p>
           )}
         </div>
 
@@ -247,6 +291,25 @@ export default function Home() {
 
         <ChatInput disabled={isStreaming} onSend={handleSend} />
       </div>
+
+      <div className="hidden w-72 shrink-0 border-l border-white/10 lg:block">
+        <ActivityLog entries={activityLog} />
+      </div>
+
+      {logOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          onClick={() => setLogOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 right-0 z-40 w-72 max-w-[85vw] transform border-l border-white/10 transition-transform duration-200 ease-out lg:hidden ${
+          logOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <ActivityLog entries={activityLog} />
+      </aside>
     </main>
   );
 }
