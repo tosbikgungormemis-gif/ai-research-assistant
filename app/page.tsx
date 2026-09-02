@@ -35,6 +35,7 @@ export default function Home() {
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   function pushLog(text: string) {
@@ -64,6 +65,29 @@ export default function Home() {
     window.localStorage.setItem(VOICE_PREF_KEY, String(voiceEnabled));
     if (!voiceEnabled) stopSpeaking();
   }, [voiceEnabled]);
+
+  useEffect(() => {
+    function onBeforeInstallPrompt(e: Event) {
+      e.preventDefault();
+      setInstallPrompt(e);
+    }
+    function onAppInstalled() {
+      setInstallPrompt(null);
+    }
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
+  }, []);
+
+  async function handleInstall() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  }
 
   useEffect(() => {
     if (!hydrated) return;
@@ -279,6 +303,14 @@ export default function Home() {
             <p className="text-xs font-bold tracking-[0.25em] text-glow">JARVIS</p>
             <h1 className="truncate text-xs text-slate-500">{active?.title ?? "Yeni sohbet"}</h1>
           </div>
+          {installPrompt && (
+            <button
+              onClick={handleInstall}
+              className="shrink-0 rounded-lg border border-glow/40 px-2.5 py-1 text-[11px] font-medium text-glow transition hover:bg-glow/10"
+            >
+              Yükle
+            </button>
+          )}
           {voiceSupported && (
             <button
               onClick={() => setVoiceEnabled((v) => !v)}
