@@ -95,9 +95,9 @@ export default function ChatInput({
             }
           }}
           disabled={disabled}
-          placeholder="Bir soru sor veya araştırma konusu yaz... (Enter: gönder, Shift+Enter: yeni satır)"
+          placeholder="Bir soru sor..."
           rows={1}
-          className="max-h-40 min-h-[42px] flex-1 resize-none rounded-lg border border-white/10 bg-surface px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-accent"
+          className="max-h-40 min-h-[42px] flex-1 resize-none overflow-hidden rounded-lg border border-white/10 bg-surface px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-accent"
         />
         <button
           onClick={submit}
@@ -107,6 +107,9 @@ export default function ChatInput({
           Gönder
         </button>
       </div>
+      <p className="mt-1.5 hidden text-center text-[11px] text-slate-600 sm:block">
+        Enter: gönder · Shift+Enter: yeni satır
+      </p>
     </div>
   );
 }

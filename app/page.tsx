@@ -20,6 +20,7 @@ export default function Home() {
   const [statusText, setStatusText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -181,17 +182,38 @@ export default function Home() {
   }
 
   return (
-    <main className="flex h-screen bg-surface">
+    <main className="flex h-dvh bg-surface">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
         onSelect={setActiveId}
         onNew={handleNewConversation}
         onDelete={handleDeleteConversation}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-white/10 px-4 py-3">
-          <h1 className="text-sm font-semibold text-slate-200">
+        <header className="flex items-center gap-2 border-b border-white/10 px-3 py-3 md:px-4">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 md:hidden"
+            aria-label="Sohbet listesini aç"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              className="h-5 w-5"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
             {active?.title ?? "AI Araştırma Asistanı"}
           </h1>
         </header>
