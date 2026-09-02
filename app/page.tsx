@@ -214,7 +214,7 @@ export default function Home() {
             </svg>
           </button>
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-200">
-            {active?.title ?? "AI Araştırma Asistanı"}
+            {active?.title ?? "Jarvis"}
           </h1>
         </header>
 
@@ -222,10 +222,10 @@ export default function Home() {
           {!active || active.messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center text-slate-500">
               <p className="text-lg font-medium text-slate-300">
-                Neyi araştırmamı istersin?
+                Emrindeyim. Ne yapalım?
               </p>
               <p className="mt-1 max-w-sm text-sm">
-                Sorunu yaz, gerektiğinde web&apos;de araştırırım. PDF veya metin dosyası da
+                Bir soru sor, gerektiğinde web&apos;de araştırırım. PDF veya metin dosyası da
                 ekleyebilirsin.
               </p>
             </div>
