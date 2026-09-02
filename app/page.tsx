@@ -13,11 +13,14 @@ import {
   saveConversations,
   titleFromMessage,
 } from "@/lib/storage";
+import { isSpeechSynthesisSupported, speak, stopSpeaking } from "@/lib/speech";
 import type { Conversation, Source, StoredBlock, StoredMessage } from "@/lib/types";
 
 function timeStamp(): string {
   return new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
+
+const VOICE_PREF_KEY = "jarvis:voice-enabled";
 
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -29,20 +32,38 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [activityLog, setActivityLog] = useState<LogEntry[]>([]);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   function pushLog(text: string) {
     setActivityLog((prev) => [...prev.slice(-49), { id: newId(), text, time: timeStamp() }]);
   }
 
-  const jarvisState: JarvisState = !isStreaming ? "idle" : statusText ? "thinking" : "speaking";
+  const jarvisState: JarvisState = isSpeaking
+    ? "speaking"
+    : !isStreaming
+    ? "idle"
+    : statusText
+    ? "thinking"
+    : "speaking";
 
   useEffect(() => {
     const loaded = loadConversations();
     setConversations(loaded);
     setActiveId(loaded[0]?.id ?? null);
     setHydrated(true);
+
+    setVoiceSupported(isSpeechSynthesisSupported());
+    const storedVoicePref = window.localStorage.getItem(VOICE_PREF_KEY);
+    if (storedVoicePref !== null) setVoiceEnabled(storedVoicePref !== "false");
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(VOICE_PREF_KEY, String(voiceEnabled));
+    if (!voiceEnabled) stopSpeaking();
+  }, [voiceEnabled]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -77,6 +98,8 @@ export default function Home() {
 
   async function handleSend(text: string, attachments: StoredBlock[]) {
     setErrorText(null);
+    stopSpeaking();
+    setIsSpeaking(false);
 
     let conversation = active;
     if (!conversation) {
@@ -192,6 +215,12 @@ export default function Home() {
         }
       }
       pushLog("Yanıt tamamlandı.");
+      if (voiceEnabled && accumulatedText) {
+        speak(accumulatedText, {
+          onStart: () => setIsSpeaking(true),
+          onEnd: () => setIsSpeaking(false),
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Beklenmeyen bir hata oluştu.";
       setErrorText(message);
@@ -210,8 +239,16 @@ export default function Home() {
       <Sidebar
         conversations={conversations}
         activeId={activeId}
-        onSelect={setActiveId}
-        onNew={handleNewConversation}
+        onSelect={(id) => {
+          stopSpeaking();
+          setIsSpeaking(false);
+          setActiveId(id);
+        }}
+        onNew={() => {
+          stopSpeaking();
+          setIsSpeaking(false);
+          handleNewConversation();
+        }}
         onDelete={handleDeleteConversation}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -242,6 +279,48 @@ export default function Home() {
             <p className="text-xs font-bold tracking-[0.25em] text-glow">JARVIS</p>
             <h1 className="truncate text-xs text-slate-500">{active?.title ?? "Yeni sohbet"}</h1>
           </div>
+          {voiceSupported && (
+            <button
+              onClick={() => setVoiceEnabled((v) => !v)}
+              className={`shrink-0 rounded-lg p-1.5 transition hover:bg-white/5 ${
+                voiceEnabled ? "text-glow" : "text-slate-500"
+              }`}
+              aria-label={voiceEnabled ? "Sesli yanıtı kapat" : "Sesli yanıtı aç"}
+              title={voiceEnabled ? "Sesli yanıt açık" : "Sesli yanıt kapalı"}
+            >
+              {voiceEnabled ? (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+                  <path d="M16 8a5 5 0 0 1 0 8" />
+                  <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+                </svg>
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+                  <line x1="16" y1="9" x2="21" y2="14" />
+                  <line x1="21" y1="9" x2="16" y2="14" />
+                </svg>
+              )}
+            </button>
+          )}
           <button
             onClick={() => setLogOpen(true)}
             className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 lg:hidden"
