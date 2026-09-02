@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Araştırma Asistanı",
-  description: "Web araması ve dosya yükleme destekli AI araştırma asistanı",
+  title: "Jarvis",
+  description: "Web araması ve dosya yükleme destekli, kişilikli AI asistanın",
 };
 
 export const viewport: Viewport = {
