@@ -6,6 +6,7 @@ import ChatMessage from "@/components/ChatMessage";
 import ChatInput from "@/components/ChatInput";
 import JarvisOrb, { type JarvisState } from "@/components/JarvisOrb";
 import ActivityLog, { type LogEntry } from "@/components/ActivityLog";
+import VoicePicker from "@/components/VoicePicker";
 import {
   createConversation,
   loadConversations,
@@ -13,7 +14,13 @@ import {
   saveConversations,
   titleFromMessage,
 } from "@/lib/storage";
-import { isSpeechSynthesisSupported, speak, stopSpeaking } from "@/lib/speech";
+import {
+  getAvailableVoices,
+  isSpeechSynthesisSupported,
+  onVoicesChanged,
+  speak,
+  stopSpeaking,
+} from "@/lib/speech";
 import type { Conversation, Source, StoredBlock, StoredMessage } from "@/lib/types";
 
 function timeStamp(): string {
@@ -21,6 +28,7 @@ function timeStamp(): string {
 }
 
 const VOICE_PREF_KEY = "jarvis:voice-enabled";
+const VOICE_URI_KEY = "jarvis:voice-uri";
 
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -36,6 +44,9 @@ export default function Home() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(null);
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   function pushLog(text: string) {
@@ -59,12 +70,25 @@ export default function Home() {
     setVoiceSupported(isSpeechSynthesisSupported());
     const storedVoicePref = window.localStorage.getItem(VOICE_PREF_KEY);
     if (storedVoicePref !== null) setVoiceEnabled(storedVoicePref !== "false");
+    setSelectedVoiceURI(window.localStorage.getItem(VOICE_URI_KEY));
+
+    function refreshVoices() {
+      setAvailableVoices(getAvailableVoices("tr"));
+    }
+    refreshVoices();
+    const unsubscribe = onVoicesChanged(refreshVoices);
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem(VOICE_PREF_KEY, String(voiceEnabled));
     if (!voiceEnabled) stopSpeaking();
   }, [voiceEnabled]);
+
+  useEffect(() => {
+    if (selectedVoiceURI) window.localStorage.setItem(VOICE_URI_KEY, selectedVoiceURI);
+    else window.localStorage.removeItem(VOICE_URI_KEY);
+  }, [selectedVoiceURI]);
 
   useEffect(() => {
     function onBeforeInstallPrompt(e: Event) {
@@ -241,6 +265,7 @@ export default function Home() {
       pushLog("Yanıt tamamlandı.");
       if (voiceEnabled && accumulatedText) {
         speak(accumulatedText, {
+          voiceURI: selectedVoiceURI,
           onStart: () => setIsSpeaking(true),
           onEnd: () => setIsSpeaking(false),
         });
@@ -353,6 +378,28 @@ export default function Home() {
               )}
             </button>
           )}
+          {voiceSupported && (
+            <button
+              onClick={() => setVoicePickerOpen(true)}
+              className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
+              aria-label="Jarvis sesini seç"
+              title="Ses seç"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                className="h-5 w-5"
+              >
+                <line x1="6" y1="20" x2="6" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="18" y1="20" x2="18" y2="14" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => setLogOpen(true)}
             className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 lg:hidden"
@@ -421,6 +468,17 @@ export default function Home() {
       >
         <ActivityLog entries={activityLog} />
       </aside>
+
+      <VoicePicker
+        open={voicePickerOpen}
+        onClose={() => setVoicePickerOpen(false)}
+        voices={availableVoices}
+        selectedURI={selectedVoiceURI}
+        onSelect={(uri) => {
+          setSelectedVoiceURI(uri);
+          setVoicePickerOpen(false);
+        }}
+      />
     </main>
   );
 }

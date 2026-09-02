@@ -83,9 +83,27 @@ export function stripMarkdownForSpeech(text: string): string {
   ).trim();
 }
 
+export function getAvailableVoices(lang = "tr"): SpeechSynthesisVoice[] {
+  if (!isSpeechSynthesisSupported()) return [];
+  return window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith(lang));
+}
+
+export function onVoicesChanged(callback: () => void): () => void {
+  if (!isSpeechSynthesisSupported()) return () => {};
+  window.speechSynthesis.addEventListener("voiceschanged", callback);
+  return () => window.speechSynthesis.removeEventListener("voiceschanged", callback);
+}
+
 export function speak(
   text: string,
-  opts: { lang?: string; onStart?: () => void; onEnd?: () => void } = {},
+  opts: {
+    lang?: string;
+    voiceURI?: string | null;
+    pitch?: number;
+    rate?: number;
+    onStart?: () => void;
+    onEnd?: () => void;
+  } = {},
 ): void {
   if (!isSpeechSynthesisSupported()) return;
   const clean = stripMarkdownForSpeech(text);
@@ -94,7 +112,14 @@ export function speak(
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(clean);
   utterance.lang = opts.lang ?? "tr-TR";
-  utterance.rate = 1.02;
+  utterance.rate = opts.rate ?? 0.97;
+  utterance.pitch = opts.pitch ?? 0.88;
+
+  if (opts.voiceURI) {
+    const match = window.speechSynthesis.getVoices().find((v) => v.voiceURI === opts.voiceURI);
+    if (match) utterance.voice = match;
+  }
+
   utterance.onstart = () => opts.onStart?.();
   utterance.onend = () => opts.onEnd?.();
   utterance.onerror = () => opts.onEnd?.();
