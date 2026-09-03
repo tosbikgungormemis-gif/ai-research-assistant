@@ -11,9 +11,11 @@ type RecognitionHandle = { stop: () => void };
 export default function ChatInput({
   disabled,
   onSend,
+  onListeningChange,
 }: {
   disabled: boolean;
   onSend: (text: string, attachments: StoredBlock[]) => void;
+  onListeningChange?: (listening: boolean) => void;
 }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -27,6 +29,10 @@ export default function ChatInput({
     setMicSupported(isSpeechRecognitionSupported());
     return () => recognitionRef.current?.stop();
   }, []);
+
+  useEffect(() => {
+    onListeningChange?.(listening);
+  }, [listening, onListeningChange]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -83,7 +89,50 @@ export default function ChatInput({
   }
 
   return (
-    <div className="border-t border-white/10 bg-panel p-3">
+    <div className="relative border-t border-white/10 bg-panel p-3 pt-9">
+      {micSupported && (
+        <div className="absolute -top-8 left-1/2 flex -translate-x-1/2 flex-col items-center">
+          <div className="relative flex h-16 w-16 items-center justify-center">
+            {listening && (
+              <>
+                <span className="talk-ring absolute inset-0 rounded-full border-2 border-[#ff4d6d]" />
+                <span
+                  className="talk-ring absolute inset-0 rounded-full border-2 border-[#ff4d6d]"
+                  style={{ animationDelay: "0.5s" }}
+                />
+              </>
+            )}
+            <button
+              onClick={toggleListening}
+              disabled={disabled}
+              className={`relative flex h-16 w-16 items-center justify-center rounded-full border-2 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                listening
+                  ? "border-[#ff4d6d]/70 bg-[#2a121a] shadow-[0_0_32px_8px_rgba(255,77,109,0.5)]"
+                  : "border-glow/60 bg-surface shadow-[0_0_18px_4px_rgba(79,195,255,0.3)] hover:shadow-[0_0_26px_6px_rgba(79,195,255,0.45)]"
+              }`}
+              title={listening ? "Dinleniyor... durdurmak için bas" : "Sesli komut ver"}
+              aria-label={listening ? "Dinlemeyi durdur" : "Sesli komut ver"}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={listening ? "#ff4d6d" : "#4fc3ff"}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-7 w-7"
+              >
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10a7 7 0 0 0 14 0" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
@@ -113,20 +162,6 @@ export default function ChatInput({
         >
           📎
         </button>
-        {micSupported && (
-          <button
-            onClick={toggleListening}
-            disabled={disabled}
-            className={`shrink-0 rounded-lg border px-3 py-2 text-sm transition disabled:opacity-50 ${
-              listening
-                ? "border-red-400/50 bg-red-500/20 text-red-300"
-                : "border-white/10 text-slate-300 hover:bg-white/5"
-            }`}
-            title={listening ? "Dinleniyor... durdurmak için bas" : "Sesli komut ver"}
-          >
-            {listening ? "🔴" : "🎤"}
-          </button>
-        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -158,7 +193,7 @@ export default function ChatInput({
         </button>
       </div>
       <p className="mt-1.5 hidden text-center text-[11px] text-slate-600 sm:block">
-        Enter: gönder · Shift+Enter: yeni satır{micSupported ? " · 🎤 sesli komut" : ""}
+        Enter: gönder · Shift+Enter: yeni satır{micSupported ? " · büyük düğme: sesli komut" : ""}
       </p>
     </div>
   );

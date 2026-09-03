@@ -1,17 +1,19 @@
 "use client";
 
-export type JarvisState = "idle" | "thinking" | "speaking";
+export type JarvisState = "idle" | "thinking" | "speaking" | "listening";
 
 const STATE_LABEL: Record<JarvisState, string> = {
   idle: "HAZIR",
   thinking: "İŞLENİYOR",
   speaking: "YANITLIYOR",
+  listening: "DİNLİYORUM",
 };
 
 const STATE_COLOR: Record<JarvisState, string> = {
   idle: "#4fc3ff",
   thinking: "#ff9d3d",
   speaking: "#4fc3ff",
+  listening: "#ff4d6d",
 };
 
 function Ticks({ count, radius, active }: { count: number; radius: number; active: boolean }) {
@@ -81,7 +83,7 @@ export default function JarvisOrb({
             </radialGradient>
           </defs>
         </svg>
-        {state === "speaking" && (
+        {(state === "speaking" || state === "listening") && (
           <div className="absolute inset-x-0 bottom-[28%] flex items-end justify-center gap-[3px]">
             {[0, 1, 2, 3, 4].map((i) => (
               <span

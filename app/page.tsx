@@ -47,19 +47,30 @@ export default function Home() {
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(null);
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   function pushLog(text: string) {
     setActivityLog((prev) => [...prev.slice(-49), { id: newId(), text, time: timeStamp() }]);
   }
 
-  const jarvisState: JarvisState = isSpeaking
+  const jarvisState: JarvisState = isListening
+    ? "listening"
+    : isSpeaking
     ? "speaking"
     : !isStreaming
     ? "idle"
     : statusText
     ? "thinking"
     : "speaking";
+
+  function handleListeningChange(listening: boolean) {
+    setIsListening(listening);
+    if (listening) {
+      stopSpeaking();
+      setIsSpeaking(false);
+    }
+  }
 
   useEffect(() => {
     const loaded = loadConversations();
@@ -447,7 +458,11 @@ export default function Home() {
           </div>
         )}
 
-        <ChatInput disabled={isStreaming} onSend={handleSend} />
+        <ChatInput
+          disabled={isStreaming}
+          onSend={handleSend}
+          onListeningChange={handleListeningChange}
+        />
       </div>
 
       <div className="hidden w-72 shrink-0 border-l border-white/10 lg:block">

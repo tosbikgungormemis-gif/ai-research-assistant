@@ -118,3 +118,24 @@ body {
     animation: none;
   }
 }
+
+@keyframes talk-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+.talk-ring {
+  animation: talk-ring 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .talk-ring {
+    animation: none;
+  }
+}
