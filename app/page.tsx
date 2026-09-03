@@ -7,6 +7,7 @@ import ChatInput from "@/components/ChatInput";
 import JarvisOrb, { type JarvisState } from "@/components/JarvisOrb";
 import ActivityLog, { type LogEntry } from "@/components/ActivityLog";
 import VoicePicker from "@/components/VoicePicker";
+import TaskPanel from "@/components/TaskPanel";
 import {
   createConversation,
   loadConversations,
@@ -14,6 +15,7 @@ import {
   saveConversations,
   titleFromMessage,
 } from "@/lib/storage";
+import { loadTasks, saveTasks, createTask } from "@/lib/tasks";
 import {
   getAvailableVoices,
   isSpeechSynthesisSupported,
@@ -21,7 +23,18 @@ import {
   speak,
   stopSpeaking,
 } from "@/lib/speech";
-import type { Conversation, Source, StoredBlock, StoredMessage } from "@/lib/types";
+import type { Conversation, Source, StoredBlock, StoredMessage, Task } from "@/lib/types";
+
+function nowLocalLabel(): string {
+  return new Date().toLocaleString("tr-TR", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function timeStamp(): string {
   return new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -48,6 +61,8 @@ export default function Home() {
   const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(null);
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   function pushLog(text: string) {
@@ -76,6 +91,7 @@ export default function Home() {
     const loaded = loadConversations();
     setConversations(loaded);
     setActiveId(loaded[0]?.id ?? null);
+    setTasks(loadTasks());
     setHydrated(true);
 
     setVoiceSupported(isSpeechSynthesisSupported());
@@ -155,6 +171,64 @@ export default function Home() {
     }
   }
 
+  function handleAddTask(text: string, dueLabel: string | null) {
+    const updated = [createTask(text, dueLabel), ...loadTasks()];
+    saveTasks(updated);
+    setTasks(updated);
+  }
+
+  function handleToggleTask(id: string) {
+    const updated = loadTasks().map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+    saveTasks(updated);
+    setTasks(updated);
+  }
+
+  function handleDeleteTask(id: string) {
+    const updated = loadTasks().filter((t) => t.id !== id);
+    saveTasks(updated);
+    setTasks(updated);
+  }
+
+  function applyTaskToolCall(input: unknown): string {
+    const args = (input ?? {}) as {
+      action?: string;
+      text?: string;
+      due_text?: string;
+      task_id?: string;
+    };
+    const current = loadTasks();
+
+    if (args.action === "add") {
+      const text = String(args.text ?? "").trim();
+      if (!text) return "Görev metni boş olduğu için eklenemedi.";
+      const dueLabel = args.due_text ? String(args.due_text).trim() : null;
+      const updated = [createTask(text, dueLabel || null), ...current];
+      saveTasks(updated);
+      setTasks(updated);
+      return `Görev eklendi: "${text}"${dueLabel ? ` (${dueLabel})` : ""}.`;
+    }
+
+    if (args.action === "complete") {
+      const task = current.find((t) => t.id === args.task_id);
+      if (!task) return "Belirtilen id'ye sahip bir görev bulunamadı.";
+      const updated = current.map((t) => (t.id === task.id ? { ...t, done: true } : t));
+      saveTasks(updated);
+      setTasks(updated);
+      return `Görev tamamlandı olarak işaretlendi: "${task.text}".`;
+    }
+
+    if (args.action === "delete") {
+      const task = current.find((t) => t.id === args.task_id);
+      if (!task) return "Belirtilen id'ye sahip bir görev bulunamadı.";
+      const updated = current.filter((t) => t.id !== task.id);
+      saveTasks(updated);
+      setTasks(updated);
+      return `Görev silindi: "${task.text}".`;
+    }
+
+    return "Bilinmeyen bir işlem istendi, hiçbir şey değiştirilmedi.";
+  }
+
   async function handleSend(text: string, attachments: StoredBlock[]) {
     setErrorText(null);
     stopSpeaking();
@@ -224,12 +298,26 @@ export default function Home() {
       }));
     }
 
-    try {
+    type RequestBlock = Record<string, unknown>;
+    type RequestMessage = { role: "user" | "assistant"; blocks: RequestBlock[] };
+
+    async function runChatStream(requestMessages: RequestMessage[]): Promise<{
+      text: string;
+      stopReason: string | null;
+      toolUse: { id: string; input: unknown } | null;
+    }> {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: historyForRequest.map((m) => ({ role: m.role, blocks: m.blocks })),
+          messages: requestMessages,
+          tasks: loadTasks().map(({ id, text: t, done, dueLabel }) => ({
+            id,
+            text: t,
+            done,
+            dueLabel,
+          })),
+          nowLocal: nowLocalLabel(),
         }),
       });
 
@@ -241,6 +329,9 @@ export default function Home() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let text = "";
+      let stopReason: string | null = null;
+      let toolUse: { id: string; input: unknown } | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -263,16 +354,64 @@ export default function Home() {
               respondingLogged = true;
             }
             setStatusText(null);
-            accumulatedText += event.text;
-            applyAssistantText(accumulatedText);
+            text += event.text;
+            applyAssistantText(text);
           } else if (event.type === "sources") {
             applyAssistantSources(event.sources);
             pushLog(`${event.sources.length} kaynak bulundu.`);
+          } else if (event.type === "tool_use") {
+            toolUse = { id: event.id, input: event.input };
+          } else if (event.type === "done") {
+            stopReason = event.stopReason;
           } else if (event.type === "error") {
             throw new Error(event.message);
           }
         }
       }
+
+      return { text, stopReason, toolUse };
+    }
+
+    try {
+      const requestMessages: RequestMessage[] = historyForRequest.map((m) => ({
+        role: m.role,
+        blocks: m.blocks,
+      }));
+
+      const phase1 = await runChatStream(requestMessages);
+
+      if (phase1.stopReason === "tool_use" && phase1.toolUse) {
+        pushLog("Yapılacaklar listesi güncelleniyor...");
+        const resultText = applyTaskToolCall(phase1.toolUse.input);
+
+        const assistantBlocks: RequestBlock[] = [];
+        if (phase1.text.trim()) assistantBlocks.push({ type: "text", text: phase1.text });
+        assistantBlocks.push({
+          type: "tool_use",
+          id: phase1.toolUse.id,
+          name: "manage_tasks",
+          input: phase1.toolUse.input,
+        });
+
+        const continuationMessages: RequestMessage[] = [
+          ...requestMessages,
+          { role: "assistant", blocks: assistantBlocks },
+          {
+            role: "user",
+            blocks: [
+              { type: "tool_result", tool_use_id: phase1.toolUse.id, content: resultText },
+            ],
+          },
+        ];
+
+        applyAssistantText("");
+        const phase2 = await runChatStream(continuationMessages);
+        accumulatedText = phase2.text.trim() ? phase2.text : resultText;
+        applyAssistantText(accumulatedText);
+      } else {
+        accumulatedText = phase1.text;
+      }
+
       pushLog("Yanıt tamamlandı.");
       if (voiceEnabled && accumulatedText) {
         speak(accumulatedText, {
@@ -412,6 +551,29 @@ export default function Home() {
             </button>
           )}
           <button
+            onClick={() => setTasksPanelOpen(true)}
+            className="relative shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
+            aria-label="Yapılacaklar listesini aç"
+            title="Yapılacaklar"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <path d="m8 12 2.5 2.5L16 9" />
+            </svg>
+            {tasks.some((t) => !t.done) && (
+              <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-amber" />
+            )}
+          </button>
+          <button
             onClick={() => setLogOpen(true)}
             className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 lg:hidden"
             aria-label="Aktivite günlüğünü aç"
@@ -495,6 +657,15 @@ export default function Home() {
           setSelectedVoiceURI(uri);
           setVoicePickerOpen(false);
         }}
+      />
+
+      <TaskPanel
+        open={tasksPanelOpen}
+        onClose={() => setTasksPanelOpen(false)}
+        tasks={tasks}
+        onAdd={handleAddTask}
+        onToggle={handleToggleTask}
+        onDelete={handleDeleteTask}
       />
     </main>
   );

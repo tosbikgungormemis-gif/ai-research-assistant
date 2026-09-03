@@ -28,5 +28,14 @@ export type StreamEvent =
   | { type: "status"; text: string }
   | { type: "text"; text: string }
   | { type: "sources"; sources: Source[] }
+  | { type: "tool_use"; id: string; input: unknown }
   | { type: "done"; stopReason: string | null }
   | { type: "error"; message: string };
+
+export type Task = {
+  id: string;
+  text: string;
+  done: boolean;
+  dueLabel: string | null;
+  createdAt: number;
+};
