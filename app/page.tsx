@@ -437,10 +437,6 @@ export default function Home() {
               <p className="mt-5 text-lg font-medium text-slate-300">
                 Emrinizdeyim, efendim.
               </p>
-              <p className="mt-1 max-w-sm text-sm text-slate-500">
-                Bir soru sor, gerektiğinde web&apos;de araştırırım. PDF veya metin dosyası da
-                ekleyebilirsin.
-              </p>
             </div>
           ) : (
             active.messages.map((message) => (
