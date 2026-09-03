@@ -612,7 +612,7 @@ export default function Home() {
             })
           )}
           {statusText && (
-            <p className="pl-1 text-xs italic text-amber">{statusText}</p>
+            <p className="pl-1 text-xs italic text-[#34d399]">{statusText}</p>
           )}
         </div>
 

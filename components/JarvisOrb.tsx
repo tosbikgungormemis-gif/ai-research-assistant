@@ -11,7 +11,7 @@ const STATE_LABEL: Record<JarvisState, string> = {
 
 const STATE_COLOR: Record<JarvisState, string> = {
   idle: "#4fc3ff",
-  thinking: "#ff9d3d",
+  thinking: "#34d399",
   speaking: "#4fc3ff",
   listening: "#ff4d6d",
 };
