@@ -130,7 +130,7 @@ export default function Home() {
   }, [conversations, hydrated]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [conversations, activeId, statusText]);
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
@@ -439,9 +439,15 @@ export default function Home() {
               </p>
             </div>
           ) : (
-            active.messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
-            ))
+            active.messages.map((message, idx) => {
+              const isLast = idx === active.messages.length - 1;
+              const isEmptyText = message.blocks.every(
+                (b) => b.type !== "text" || !b.text.trim(),
+              );
+              const pending =
+                isLast && isStreaming && message.role === "assistant" && isEmptyText;
+              return <ChatMessage key={message.id} message={message} pending={pending} />;
+            })
           )}
           {statusText && (
             <p className="pl-1 text-xs italic text-amber">{statusText}</p>

@@ -108,7 +108,19 @@ export default function ChatInput({
               key={i}
               className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-xs text-slate-300"
             >
-              📎 {att.name}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-3 w-3 shrink-0"
+              >
+                <path d="M21.44 11.05 12.25 20.24a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 0 1 5.19 5.19L9.66 17.65a1.83 1.83 0 0 1-2.6-2.6l8.49-8.48" />
+              </svg>
+              {att.name}
               <button
                 onClick={() => removeAttachment(i)}
                 className="text-slate-400 hover:text-red-400"
