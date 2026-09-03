@@ -56,19 +56,42 @@ export default function JarvisOrb({
         style={{ width: size, height: size, filter: `drop-shadow(0 0 ${size * 0.12}px ${color}66)` }}
       >
         <svg viewBox="-50 -50 100 100" width={size} height={size} className="overflow-visible">
-          <g className={`jarvis-ring-ccw ${active ? "is-active" : ""}`} style={{ color: "#ff9d3d" }}>
+          <g style={{ color: "#ff9d3d" }}>
             <Ticks count={36} radius={48} active={active} />
           </g>
           <circle
-            r={38}
+            r={44}
+            fill="none"
+            stroke={color}
+            strokeWidth={1.5}
+            strokeDasharray="46 14 22 10 60 18 34 12"
+            strokeLinecap="round"
+            opacity={0.85}
+            transform="rotate(-15)"
+          />
+          <circle
+            r={40}
+            fill="none"
+            stroke="#ff9d3d"
+            strokeWidth={2.5}
+            strokeDasharray="24 400"
+            strokeLinecap="round"
+            opacity={active ? 0.95 : 0.6}
+            transform="rotate(205)"
+          />
+          <circle
+            r={34}
             fill="none"
             stroke={color}
             strokeWidth={1}
-            strokeDasharray="3 6"
-            className={`jarvis-ring-cw ${active ? "is-active" : ""}`}
-            opacity={0.7}
+            strokeDasharray="18 10 28 14 16 8 40 20"
+            strokeLinecap="round"
+            opacity={0.45}
+            transform="rotate(35)"
           />
-          <circle r={30} fill="none" stroke={color} strokeWidth={0.75} opacity={0.35} />
+          <circle r={28} fill="none" stroke={color} strokeWidth={0.5} opacity={0.25} />
+          <rect x={-1.5} y={-46.5} width={3} height={3} fill={color} opacity={0.8} transform="rotate(-58)" />
+          <rect x={-1.5} y={-46.5} width={3} height={3} fill={color} opacity={0.5} transform="rotate(-48)" />
           <circle
             r={20}
             fill="url(#jarvis-core-gradient)"
