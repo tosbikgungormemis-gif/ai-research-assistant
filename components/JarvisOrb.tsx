@@ -72,7 +72,7 @@ export default function JarvisOrb({
           <circle
             r={20}
             fill="url(#jarvis-core-gradient)"
-            className="jarvis-core"
+            className={`jarvis-core ${active ? "is-active" : ""}`}
             style={{ transformOrigin: "center" }}
           />
           <defs>
