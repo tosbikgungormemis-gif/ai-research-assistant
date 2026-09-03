@@ -92,21 +92,11 @@ body {
 }
 
 .jarvis-ring-cw {
-  animation: jarvis-spin 9s linear infinite;
   transform-origin: center;
 }
 
 .jarvis-ring-ccw {
-  animation: jarvis-spin-reverse 13s linear infinite;
   transform-origin: center;
-}
-
-.jarvis-ring-cw.is-active {
-  animation-duration: 3s;
-}
-
-.jarvis-ring-ccw.is-active {
-  animation-duration: 4.5s;
 }
 
 .jarvis-bar {
