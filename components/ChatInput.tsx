@@ -24,6 +24,7 @@ export default function ChatInput({
   const [listening, setListening] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<RecognitionHandle | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setMicSupported(isSpeechRecognitionSupported());
@@ -33,6 +34,13 @@ export default function ChatInput({
   useEffect(() => {
     onListeningChange?.(listening);
   }, [listening, onListeningChange]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -88,58 +96,17 @@ export default function ChatInput({
     setListening(true);
   }
 
-  return (
-    <div className="relative border-t border-white/10 bg-panel p-3 pt-9">
-      {micSupported && (
-        <div className="absolute -top-8 left-1/2 flex -translate-x-1/2 flex-col items-center">
-          <div className="relative flex h-16 w-16 items-center justify-center">
-            {listening && (
-              <>
-                <span className="talk-ring absolute inset-0 rounded-full border-2 border-[#ff4d6d]" />
-                <span
-                  className="talk-ring absolute inset-0 rounded-full border-2 border-[#ff4d6d]"
-                  style={{ animationDelay: "0.5s" }}
-                />
-              </>
-            )}
-            <button
-              onClick={toggleListening}
-              disabled={disabled}
-              className={`relative flex h-16 w-16 items-center justify-center rounded-full border-2 transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                listening
-                  ? "border-[#ff4d6d]/70 bg-[#2a121a] shadow-[0_0_32px_8px_rgba(255,77,109,0.5)]"
-                  : "border-glow/60 bg-surface shadow-[0_0_18px_4px_rgba(79,195,255,0.3)] hover:shadow-[0_0_26px_6px_rgba(79,195,255,0.45)]"
-              }`}
-              title={listening ? "Dinleniyor... durdurmak için bas" : "Sesli komut ver"}
-              aria-label={listening ? "Dinlemeyi durdur" : "Sesli komut ver"}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={listening ? "#ff4d6d" : "#4fc3ff"}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-7 w-7"
-              >
-                <rect x="9" y="2" width="6" height="12" rx="3" />
-                <path d="M5 10a7 7 0 0 0 14 0" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
+  const canSend = !disabled && (text.trim().length > 0 || attachments.length > 0);
 
-      {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
+  return (
+    <div className="border-t border-white/10 bg-panel px-3 pb-3 pt-2.5">
+      {error && <p className="mb-1.5 px-1 text-xs text-red-400">{error}</p>}
       {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
+        <div className="mb-1.5 flex flex-wrap gap-2 px-1">
           {attachments.map((att, i) => (
             <span
               key={i}
-              className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-xs"
+              className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-xs text-slate-300"
             >
               📎 {att.name}
               <button
@@ -153,14 +120,27 @@ export default function ChatInput({
           ))}
         </div>
       )}
-      <div className="flex items-end gap-2">
+
+      <div className="flex items-end gap-1.5 rounded-3xl border border-white/10 bg-surface py-1.5 pl-2 pr-1.5 transition focus-within:border-accent/50">
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
-          className="shrink-0 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/5 disabled:opacity-50"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/5 hover:text-slate-200 disabled:opacity-40"
           title="Dosya ekle (PDF, TXT, MD, CSV, JSON)"
+          aria-label="Dosya ekle"
         >
-          📎
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-[18px] w-[18px]"
+          >
+            <path d="M21.44 11.05 12.25 20.24a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 0 1 5.19 5.19L9.66 17.65a1.83 1.83 0 0 1-2.6-2.6l8.49-8.48" />
+          </svg>
         </button>
         <input
           ref={fileInputRef}
@@ -170,7 +150,9 @@ export default function ChatInput({
           className="hidden"
           onChange={(e) => handleFiles(e.target.files)}
         />
+
         <textarea
+          ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -180,20 +162,69 @@ export default function ChatInput({
             }
           }}
           disabled={disabled}
-          placeholder={listening ? "Dinliyorum..." : "Bir soru sor..."}
+          placeholder={listening ? "Dinliyorum..." : "Jarvis'e bir şey sor..."}
           rows={1}
-          className="max-h-40 min-h-[42px] flex-1 resize-none overflow-hidden rounded-lg border border-white/10 bg-surface px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-accent"
+          className="max-h-40 min-h-[36px] flex-1 resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-normal text-slate-100 outline-none placeholder:text-slate-500"
         />
+
+        {micSupported && (
+          <button
+            onClick={toggleListening}
+            disabled={disabled}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-40 ${
+              listening
+                ? "bg-[#ff4d6d]/15 text-[#ff4d6d]"
+                : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+            }`}
+            title={listening ? "Dinleniyor... durdurmak için bas" : "Sesli komut ver"}
+            aria-label={listening ? "Dinlemeyi durdur" : "Sesli komut ver"}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`h-[18px] w-[18px] ${listening ? "animate-pulse" : ""}`}
+            >
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0" />
+              <line x1="12" y1="17" x2="12" y2="21" />
+              <line x1="8" y1="21" x2="16" y2="21" />
+            </svg>
+          </button>
+        )}
+
         <button
           onClick={() => submit()}
-          disabled={disabled || (!text.trim() && attachments.length === 0)}
-          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-slate-950 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!canSend}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition ${
+            canSend
+              ? "bg-accent text-slate-950 hover:opacity-90"
+              : "bg-white/5 text-slate-600"
+          }`}
+          aria-label="Gönder"
         >
-          Gönder
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.25}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-[18px] w-[18px]"
+          >
+            <line x1="12" y1="19" x2="12" y2="5" />
+            <polyline points="6 11 12 5 18 11" />
+          </svg>
         </button>
       </div>
+
       <p className="mt-1.5 hidden text-center text-[11px] text-slate-600 sm:block">
-        Enter: gönder · Shift+Enter: yeni satır{micSupported ? " · büyük düğme: sesli komut" : ""}
+        Enter: gönder · Shift+Enter: yeni satır{micSupported ? " · 🎤 sesli komut" : ""}
       </p>
     </div>
   );
