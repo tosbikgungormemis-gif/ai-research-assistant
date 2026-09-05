@@ -16,25 +16,57 @@ const STATE_COLOR: Record<JarvisState, string> = {
   listening: "#ff4d6d",
 };
 
+// Deterministic pseudo-random (no Math.random) so server/client render match.
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 function Ticks({ count, radius, active }: { count: number; radius: number; active: boolean }) {
   const ticks = Array.from({ length: count }, (_, i) => {
     const angle = (i / count) * 360;
-    const long = i % 3 === 0;
+    const long = i % 5 === 0;
     return (
       <line
         key={i}
         x1={0}
         y1={-radius}
         x2={0}
-        y2={-(radius - (long ? 8 : 4))}
+        y2={-(radius - (long ? 6 : 3))}
         stroke="currentColor"
-        strokeWidth={long ? 1.5 : 1}
+        strokeWidth={long ? 1.2 : 0.8}
         transform={`rotate(${angle})`}
-        opacity={active ? 0.9 : 0.4}
+        opacity={active ? 0.85 : 0.45}
       />
     );
   });
   return <>{ticks}</>;
+}
+
+function Sunburst({ count, innerRadius, baseOuter, variance }: {
+  count: number;
+  innerRadius: number;
+  baseOuter: number;
+  variance: number;
+}) {
+  const rays = Array.from({ length: count }, (_, i) => {
+    const angle = (i / count) * 360;
+    const outer = baseOuter + seededRandom(i + 1) * variance;
+    return (
+      <line
+        key={i}
+        x1={0}
+        y1={-innerRadius}
+        x2={0}
+        y2={-outer}
+        stroke="currentColor"
+        strokeWidth={0.9}
+        strokeLinecap="round"
+        transform={`rotate(${angle})`}
+      />
+    );
+  });
+  return <>{rays}</>;
 }
 
 export default function JarvisOrb({
@@ -53,55 +85,31 @@ export default function JarvisOrb({
     <div className="flex flex-col items-center gap-3">
       <div
         className="relative"
-        style={{ width: size, height: size, filter: `drop-shadow(0 0 ${size * 0.12}px ${color}66)` }}
+        style={{ width: size, height: size, filter: `drop-shadow(0 0 ${size * 0.14}px ${color}80)` }}
       >
         <svg viewBox="-50 -50 100 100" width={size} height={size} className="overflow-visible">
-          <g style={{ color: "#ff9d3d" }}>
-            <Ticks count={36} radius={48} active={active} />
+          <g style={{ color }}>
+            <Ticks count={60} radius={47} active={active} />
           </g>
-          <circle
-            r={44}
-            fill="none"
-            stroke={color}
-            strokeWidth={1.5}
-            strokeDasharray="46 14 22 10 60 18 34 12"
-            strokeLinecap="round"
-            opacity={0.85}
-            transform="rotate(-15)"
-          />
           <circle
             r={40}
             fill="none"
-            stroke="#ff9d3d"
-            strokeWidth={2.5}
-            strokeDasharray="24 400"
-            strokeLinecap="round"
-            opacity={active ? 0.95 : 0.6}
-            transform="rotate(205)"
-          />
-          <circle
-            r={34}
-            fill="none"
             stroke={color}
             strokeWidth={1}
-            strokeDasharray="18 10 28 14 16 8 40 20"
-            strokeLinecap="round"
-            opacity={0.45}
-            transform="rotate(35)"
+            strokeDasharray="2 5"
+            opacity={0.5}
           />
-          <circle r={28} fill="none" stroke={color} strokeWidth={0.5} opacity={0.25} />
-          <rect x={-1.5} y={-46.5} width={3} height={3} fill={color} opacity={0.8} transform="rotate(-58)" />
-          <rect x={-1.5} y={-46.5} width={3} height={3} fill={color} opacity={0.5} transform="rotate(-48)" />
-          <circle
-            r={20}
-            fill="url(#jarvis-core-gradient)"
+          <g
             className={`jarvis-core ${active ? "is-active" : ""}`}
-            style={{ transformOrigin: "center" }}
-          />
+            style={{ transformOrigin: "center", color }}
+          >
+            <Sunburst count={72} innerRadius={9} baseOuter={17} variance={12} />
+            <circle r={8} fill="url(#jarvis-core-gradient)" />
+          </g>
           <defs>
             <radialGradient id="jarvis-core-gradient">
-              <stop offset="0%" stopColor={color} stopOpacity={0.95} />
-              <stop offset="70%" stopColor={color} stopOpacity={0.35} />
+              <stop offset="0%" stopColor="#ffffff" stopOpacity={0.95} />
+              <stop offset="45%" stopColor={color} stopOpacity={0.9} />
               <stop offset="100%" stopColor={color} stopOpacity={0} />
             </radialGradient>
           </defs>
