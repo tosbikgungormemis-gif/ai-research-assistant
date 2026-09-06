@@ -75,6 +75,7 @@ export default function Home() {
   const [callActive, setCallActive] = useState(false);
   const [callHint, setCallHint] = useState("Dinliyorum...");
   const [callSupported, setCallSupported] = useState(false);
+  const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const callStopRef = useRef(false);
   const callRecognitionRef = useRef<{ stop: () => void } | null>(null);
@@ -139,6 +140,29 @@ export default function Home() {
     });
 
     return cleanupListeners;
+  }, []);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const res = await fetch(
+            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=tr`,
+          );
+          const data = await res.json();
+          const label = [data.city || data.locality, data.principalSubdivision, data.countryName]
+            .filter(Boolean)
+            .join(", ");
+          setLocationLabel(label || null);
+        } catch {
+          setLocationLabel(null);
+        }
+      },
+      () => setLocationLabel(null),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
+    );
   }, []);
 
   useEffect(() => {
@@ -348,6 +372,7 @@ export default function Home() {
             dueLabel,
           })),
           nowLocal: nowLocalLabel(),
+          location: locationLabel,
         }),
       });
 

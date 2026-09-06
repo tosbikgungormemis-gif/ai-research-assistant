@@ -10,7 +10,11 @@ const MAX_TOKENS = Number(process.env.ANTHROPIC_MAX_TOKENS) || 16000;
 
 type TaskSnapshot = { id: string; text: string; done: boolean; dueLabel: string | null };
 
-function buildSystemPrompt(nowLocal: string | undefined, tasks: TaskSnapshot[]): string {
+function buildSystemPrompt(
+  nowLocal: string | undefined,
+  tasks: TaskSnapshot[],
+  location: string | null | undefined,
+): string {
   const taskLines =
     tasks.length === 0
       ? "(Şu an listede hiç görev yok.)"
@@ -30,6 +34,8 @@ sacrifice accuracy or usefulness for a joke.
 
 Current date/time (user's local time): ${nowLocal ?? "unknown"}
 
+The user's current location (approximate, from their device): ${location ?? "bilinmiyor / paylaşmadı"}
+
 The user's current to-do list (id :: text :: due label if any):
 ${taskLines}
 
@@ -39,6 +45,9 @@ ${taskLines}
   come through in how you frame it, not just dry facts.
 - When a question needs current, factual, or verifiable information, use the web_search tool
   before answering rather than relying on memory.
+- If the user asks something location-dependent (weather, nearby places, local time-sensitive
+  events) and doesn't name a location, use the location given above rather than asking them where
+  they are. If the location is unknown, then ask.
 - When you use web search, ground your claims in what you found and let the user know if sources
   disagree or if you could not find reliable information.
 - If the user attaches a document, treat it as authoritative context for the conversation.
@@ -102,6 +111,7 @@ type ChatRequestBody = {
   messages: { role: "user" | "assistant"; blocks: ChatRequestBlock[] }[];
   tasks?: TaskSnapshot[];
   nowLocal?: string;
+  location?: string | null;
 };
 
 function toAnthropicMessages(
@@ -151,7 +161,7 @@ export async function POST(req: Request) {
   }
 
   const anthropicMessages = toAnthropicMessages(body.messages);
-  const systemPrompt = buildSystemPrompt(body.nowLocal, body.tasks ?? []);
+  const systemPrompt = buildSystemPrompt(body.nowLocal, body.tasks ?? [], body.location);
 
   const encoder = new TextEncoder();
 
