@@ -282,7 +282,7 @@ export default function Home() {
     return "Bilinmeyen bir işlem istendi, hiçbir şey değiştirilmedi.";
   }
 
-  async function handleSend(text: string, attachments: StoredBlock[]) {
+  async function handleSend(text: string, attachments: StoredBlock[], viaCall = false) {
     setErrorText(null);
     stopSpeaking();
     setIsSpeaking(false);
@@ -468,7 +468,7 @@ export default function Home() {
       }
 
       pushLog("Yanıt tamamlandı.");
-      if (accumulatedText) {
+      if (viaCall && accumulatedText) {
         await speakJarvis(accumulatedText, {
           voiceURI: selectedVoiceURI,
           onStart: () => setIsSpeaking(true),
@@ -539,7 +539,7 @@ export default function Home() {
       consecutiveMisses = 0;
 
       setCallHint(`"${heard}"`);
-      await handleSend(heard, []);
+      await handleSend(heard, [], true);
       if (callStopRef.current) break;
     }
 
