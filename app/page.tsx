@@ -51,7 +51,6 @@ function playAcknowledgeSound() {
   } catch {}
 }
 
-const VOICE_PREF_KEY = "jarvis:voice-enabled";
 const VOICE_URI_KEY = "jarvis:voice-uri";
 
 export default function Home() {
@@ -65,7 +64,6 @@ export default function Home() {
   const [logOpen, setLogOpen] = useState(false);
   const [activityLog, setActivityLog] = useState<LogEntry[]>([]);
   const [voiceSupported, setVoiceSupported] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -112,8 +110,6 @@ export default function Home() {
 
     setVoiceSupported(isSpeechSynthesisSupported());
     setCallSupported(isSpeechRecognitionSupported() && isSpeechSynthesisSupported());
-    const storedVoicePref = window.localStorage.getItem(VOICE_PREF_KEY);
-    if (storedVoicePref !== null) setVoiceEnabled(storedVoicePref !== "false");
     setSelectedVoiceURI(window.localStorage.getItem(VOICE_URI_KEY));
 
     function refreshVoices() {
@@ -144,11 +140,6 @@ export default function Home() {
 
     return cleanupListeners;
   }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(VOICE_PREF_KEY, String(voiceEnabled));
-    if (!voiceEnabled) stopSpeaking();
-  }, [voiceEnabled]);
 
   useEffect(() => {
     if (selectedVoiceURI) window.localStorage.setItem(VOICE_URI_KEY, selectedVoiceURI);
@@ -452,7 +443,7 @@ export default function Home() {
       }
 
       pushLog("Yanıt tamamlandı.");
-      if (voiceEnabled && accumulatedText) {
+      if (accumulatedText) {
         await new Promise<void>((resolve) => {
           speak(accumulatedText, {
             voiceURI: selectedVoiceURI,
@@ -597,46 +588,27 @@ export default function Home() {
               Yükle
             </button>
           )}
-          {voiceSupported && (
+          {callSupported && (
             <button
-              onClick={() => setVoiceEnabled((v) => !v)}
-              className={`shrink-0 rounded-lg p-1.5 transition hover:bg-white/5 ${
-                voiceEnabled ? "text-glow" : "text-slate-500"
-              }`}
-              aria-label={voiceEnabled ? "Sesli yanıtı kapat" : "Sesli yanıtı aç"}
-              title={voiceEnabled ? "Sesli yanıt açık" : "Sesli yanıt kapalı"}
+              onClick={startCallMode}
+              className="shrink-0 rounded-lg p-1.5 text-glow transition hover:bg-white/5"
+              aria-label="Sesli görüşme başlat"
+              title="Sesli görüşme"
             >
-              {voiceEnabled ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-5 w-5"
-                >
-                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                  <path d="M16 8a5 5 0 0 1 0 8" />
-                  <path d="M18.5 5.5a9 9 0 0 1 0 13" />
-                </svg>
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-5 w-5"
-                >
-                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                  <line x1="16" y1="9" x2="21" y2="14" />
-                  <line x1="21" y1="9" x2="16" y2="14" />
-                </svg>
-              )}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+              >
+                <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+                <path d="M16 8a5 5 0 0 1 0 8" />
+                <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+              </svg>
             </button>
           )}
           {voiceSupported && (
@@ -658,27 +630,6 @@ export default function Home() {
                 <line x1="6" y1="20" x2="6" y2="10" />
                 <line x1="12" y1="20" x2="12" y2="4" />
                 <line x1="18" y1="20" x2="18" y2="14" />
-              </svg>
-            </button>
-          )}
-          {callSupported && (
-            <button
-              onClick={startCallMode}
-              className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
-              aria-label="Sesli görüşme başlat"
-              title="Sesli görüşme"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-5 w-5"
-              >
-                <path d="M3.62 6.5c1.4-2.1 3.6-3.6 6.13-4.13a1 1 0 0 1 1.1.55l1.4 2.98a1 1 0 0 1-.23 1.17l-1.7 1.53a12.1 12.1 0 0 0 5.05 5.05l1.53-1.7a1 1 0 0 1 1.17-.23l2.98 1.4a1 1 0 0 1 .55 1.1c-.53 2.53-2.03 4.73-4.13 6.13a1 1 0 0 1-.86.13C8.8 18.9 5.1 15.2 3.5 7.36a1 1 0 0 1 .12-.86Z" />
               </svg>
             </button>
           )}
