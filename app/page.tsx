@@ -22,7 +22,7 @@ import {
   isSpeechRecognitionSupported,
   isSpeechSynthesisSupported,
   onVoicesChanged,
-  speak,
+  speakJarvis,
   startListening,
   stopSpeaking,
 } from "@/lib/speech";
@@ -469,15 +469,10 @@ export default function Home() {
 
       pushLog("Yanıt tamamlandı.");
       if (accumulatedText) {
-        await new Promise<void>((resolve) => {
-          speak(accumulatedText, {
-            voiceURI: selectedVoiceURI,
-            onStart: () => setIsSpeaking(true),
-            onEnd: () => {
-              setIsSpeaking(false);
-              resolve();
-            },
-          });
+        await speakJarvis(accumulatedText, {
+          voiceURI: selectedVoiceURI,
+          onStart: () => setIsSpeaking(true),
+          onEnd: () => setIsSpeaking(false),
         });
       }
     } catch (err) {

@@ -126,6 +126,74 @@ export function speak(
   window.speechSynthesis.speak(utterance);
 }
 
+let currentClonedAudio: HTMLAudioElement | null = null;
+
+async function speakWithClonedVoice(text: string, onStart?: () => void): Promise<boolean> {
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return false;
+
+    const blob = await res.blob();
+    if (blob.size === 0) return false;
+
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    currentClonedAudio = audio;
+
+    await new Promise<void>((resolve) => {
+      audio.onended = () => resolve();
+      audio.onerror = () => resolve();
+      onStart?.();
+      audio.play().catch(() => resolve());
+    });
+
+    URL.revokeObjectURL(url);
+    if (currentClonedAudio === audio) currentClonedAudio = null;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function speakJarvis(
+  text: string,
+  opts: {
+    voiceURI?: string | null;
+    onStart?: () => void;
+    onEnd?: () => void;
+  } = {},
+): Promise<void> {
+  const clean = stripMarkdownForSpeech(text);
+  if (!clean) {
+    opts.onEnd?.();
+    return;
+  }
+
+  const usedClonedVoice = await speakWithClonedVoice(clean, opts.onStart);
+  if (usedClonedVoice) {
+    opts.onEnd?.();
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    speak(clean, {
+      voiceURI: opts.voiceURI,
+      onStart: opts.onStart,
+      onEnd: () => resolve(),
+    });
+  });
+  opts.onEnd?.();
+}
+
 export function stopSpeaking(): void {
   if (isSpeechSynthesisSupported()) window.speechSynthesis.cancel();
+  if (currentClonedAudio) {
+    currentClonedAudio.pause();
+    currentClonedAudio.currentTime = 0;
+    currentClonedAudio = null;
+  }
 }
