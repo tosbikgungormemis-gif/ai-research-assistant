@@ -8,6 +8,7 @@ import JarvisOrb, { type JarvisState } from "@/components/JarvisOrb";
 import ActivityLog, { type LogEntry } from "@/components/ActivityLog";
 import VoicePicker from "@/components/VoicePicker";
 import TaskPanel from "@/components/TaskPanel";
+import VoiceCallOverlay from "@/components/VoiceCallOverlay";
 import {
   createConversation,
   loadConversations,
@@ -18,9 +19,11 @@ import {
 import { loadTasks, saveTasks, createTask } from "@/lib/tasks";
 import {
   getAvailableVoices,
+  isSpeechRecognitionSupported,
   isSpeechSynthesisSupported,
   onVoicesChanged,
   speak,
+  startListening,
   stopSpeaking,
 } from "@/lib/speech";
 import type { Conversation, Source, StoredBlock, StoredMessage, Task } from "@/lib/types";
@@ -38,6 +41,14 @@ function nowLocalLabel(): string {
 
 function timeStamp(): string {
   return new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function playAcknowledgeSound() {
+  try {
+    const audio = new Audio("/sounds/acknowledge.mp3");
+    audio.volume = 0.9;
+    audio.play().catch(() => {});
+  } catch {}
 }
 
 const VOICE_PREF_KEY = "jarvis:voice-enabled";
@@ -63,7 +74,12 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
+  const [callActive, setCallActive] = useState(false);
+  const [callHint, setCallHint] = useState("Dinliyorum...");
+  const [callSupported, setCallSupported] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const callStopRef = useRef(false);
+  const callRecognitionRef = useRef<{ stop: () => void } | null>(null);
 
   function pushLog(text: string) {
     setActivityLog((prev) => [...prev.slice(-49), { id: newId(), text, time: timeStamp() }]);
@@ -95,6 +111,7 @@ export default function Home() {
     setHydrated(true);
 
     setVoiceSupported(isSpeechSynthesisSupported());
+    setCallSupported(isSpeechRecognitionSupported() && isSpeechSynthesisSupported());
     const storedVoicePref = window.localStorage.getItem(VOICE_PREF_KEY);
     if (storedVoicePref !== null) setVoiceEnabled(storedVoicePref !== "false");
     setSelectedVoiceURI(window.localStorage.getItem(VOICE_URI_KEY));
@@ -105,6 +122,27 @@ export default function Home() {
     refreshVoices();
     const unsubscribe = onVoicesChanged(refreshVoices);
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const audio = new Audio("/sounds/startup.mp3");
+    audio.volume = 0.85;
+
+    function cleanupListeners() {
+      window.removeEventListener("pointerdown", onInteract);
+      window.removeEventListener("keydown", onInteract);
+    }
+
+    function onInteract() {
+      audio.play().then(cleanupListeners).catch(() => {});
+    }
+
+    audio.play().then(cleanupListeners).catch(() => {
+      window.addEventListener("pointerdown", onInteract);
+      window.addEventListener("keydown", onInteract);
+    });
+
+    return cleanupListeners;
   }, []);
 
   useEffect(() => {
@@ -233,6 +271,7 @@ export default function Home() {
     setErrorText(null);
     stopSpeaking();
     setIsSpeaking(false);
+    playAcknowledgeSound();
 
     let conversation = active;
     if (!conversation) {
@@ -414,10 +453,15 @@ export default function Home() {
 
       pushLog("Yanıt tamamlandı.");
       if (voiceEnabled && accumulatedText) {
-        speak(accumulatedText, {
-          voiceURI: selectedVoiceURI,
-          onStart: () => setIsSpeaking(true),
-          onEnd: () => setIsSpeaking(false),
+        await new Promise<void>((resolve) => {
+          speak(accumulatedText, {
+            voiceURI: selectedVoiceURI,
+            onStart: () => setIsSpeaking(true),
+            onEnd: () => {
+              setIsSpeaking(false);
+              resolve();
+            },
+          });
         });
       }
     } catch (err) {
@@ -431,6 +475,73 @@ export default function Home() {
       setIsStreaming(false);
       setStatusText(null);
     }
+  }
+
+  function listenOnce(): Promise<string | null> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const handle = startListening({
+        onInterim: (interim) => setCallHint(interim || "Dinliyorum..."),
+        onFinal: (finalText) => settle(finalText),
+        onEnd: () => settle(null),
+        onError: () => settle(null),
+      });
+      if (!handle) {
+        settle(null);
+        return;
+      }
+      callRecognitionRef.current = handle;
+    });
+  }
+
+  async function startCallMode() {
+    if (!isSpeechRecognitionSupported()) {
+      setErrorText("Bu tarayıcı sesli görüşmeyi desteklemiyor.");
+      return;
+    }
+    stopSpeaking();
+    setIsSpeaking(false);
+    callStopRef.current = false;
+    setCallActive(true);
+
+    let consecutiveMisses = 0;
+    while (!callStopRef.current) {
+      setIsListening(true);
+      setCallHint("Dinliyorum...");
+      const heard = await listenOnce();
+      setIsListening(false);
+      if (callStopRef.current) break;
+
+      if (!heard) {
+        consecutiveMisses += 1;
+        if (consecutiveMisses >= 20) {
+          setCallHint("Bir şey duyamadım, görüşmeyi kapatıyorum.");
+          break;
+        }
+        continue;
+      }
+      consecutiveMisses = 0;
+
+      setCallHint(`"${heard}"`);
+      await handleSend(heard, []);
+      if (callStopRef.current) break;
+    }
+
+    endCallMode();
+  }
+
+  function endCallMode() {
+    callStopRef.current = true;
+    callRecognitionRef.current?.stop();
+    stopSpeaking();
+    setIsSpeaking(false);
+    setIsListening(false);
+    setCallActive(false);
   }
 
   return (
@@ -550,6 +661,27 @@ export default function Home() {
               </svg>
             </button>
           )}
+          {callSupported && (
+            <button
+              onClick={startCallMode}
+              className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
+              aria-label="Sesli görüşme başlat"
+              title="Sesli görüşme"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+              >
+                <path d="M3.62 6.5c1.4-2.1 3.6-3.6 6.13-4.13a1 1 0 0 1 1.1.55l1.4 2.98a1 1 0 0 1-.23 1.17l-1.7 1.53a12.1 12.1 0 0 0 5.05 5.05l1.53-1.7a1 1 0 0 1 1.17-.23l2.98 1.4a1 1 0 0 1 .55 1.1c-.53 2.53-2.03 4.73-4.13 6.13a1 1 0 0 1-.86.13C8.8 18.9 5.1 15.2 3.5 7.36a1 1 0 0 1 .12-.86Z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => setTasksPanelOpen(true)}
             className="relative shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
@@ -666,6 +798,13 @@ export default function Home() {
         onAdd={handleAddTask}
         onToggle={handleToggleTask}
         onDelete={handleDeleteTask}
+      />
+
+      <VoiceCallOverlay
+        active={callActive}
+        jarvisState={jarvisState}
+        hint={callHint}
+        onEnd={endCallMode}
       />
     </main>
   );
