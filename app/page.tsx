@@ -76,6 +76,7 @@ export default function Home() {
   const [callHint, setCallHint] = useState("Dinliyorum...");
   const [callSupported, setCallSupported] = useState(false);
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
+  const [clockLabel, setClockLabel] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const callStopRef = useRef(false);
   const callRecognitionRef = useRef<{ stop: () => void } | null>(null);
@@ -163,6 +164,12 @@ export default function Home() {
       () => setLocationLabel(null),
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
     );
+  }, []);
+
+  useEffect(() => {
+    setClockLabel(timeStamp());
+    const interval = setInterval(() => setClockLabel(timeStamp()), 1000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -575,6 +582,11 @@ export default function Home() {
         onClose={() => setSidebarOpen(false)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b border-white/10 bg-black/40 px-3 py-1 text-[10px] font-semibold tracking-[0.15em] text-glow/80 md:px-4">
+          <span>SYSTEM // ONLINE</span>
+          <span className="hidden text-slate-400 sm:inline">J·A·R·V·I·S</span>
+          <span className="tabular-nums">{clockLabel}</span>
+        </div>
         <header className="flex items-center gap-3 border-b border-white/10 px-3 py-2.5 md:px-4">
           <button
             onClick={() => setSidebarOpen(true)}
