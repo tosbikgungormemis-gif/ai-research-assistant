@@ -8,6 +8,7 @@ import JarvisOrb, { type JarvisState } from "@/components/JarvisOrb";
 import ActivityLog, { type LogEntry } from "@/components/ActivityLog";
 import VoicePicker from "@/components/VoicePicker";
 import TaskPanel from "@/components/TaskPanel";
+import MemoryPanel from "@/components/MemoryPanel";
 import VoiceCallOverlay from "@/components/VoiceCallOverlay";
 import {
   createConversation,
@@ -17,6 +18,7 @@ import {
   titleFromMessage,
 } from "@/lib/storage";
 import { loadTasks, saveTasks, createTask } from "@/lib/tasks";
+import { loadMemory, saveMemory, createMemoryFact } from "@/lib/memory";
 import {
   getAvailableVoices,
   isSpeechRecognitionSupported,
@@ -26,7 +28,7 @@ import {
   startListening,
   stopSpeaking,
 } from "@/lib/speech";
-import type { Conversation, Source, StoredBlock, StoredMessage, Task } from "@/lib/types";
+import type { Conversation, Memory, Source, StoredBlock, StoredMessage, Task } from "@/lib/types";
 
 function nowLocalLabel(): string {
   return new Date().toLocaleString("tr-TR", {
@@ -52,6 +54,12 @@ function playAcknowledgeSound() {
 }
 
 const VOICE_URI_KEY = "jarvis:voice-uri";
+const LAST_BRIEFING_KEY = "jarvis:last-briefing-date";
+
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
 
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -72,6 +80,8 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
+  const [memory, setMemory] = useState<Memory[]>([]);
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
   const [callActive, setCallActive] = useState(false);
   const [callHint, setCallHint] = useState("Dinliyorum...");
   const [callSupported, setCallSupported] = useState(false);
@@ -108,6 +118,7 @@ export default function Home() {
     setConversations(loaded);
     setActiveId(loaded[0]?.id ?? null);
     setTasks(loadTasks());
+    setMemory(loadMemory());
     setHydrated(true);
 
     setVoiceSupported(isSpeechSynthesisSupported());
@@ -171,6 +182,23 @@ export default function Home() {
     const interval = setInterval(() => setClockLabel(timeStamp()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const today = todayKey();
+    if (window.localStorage.getItem(LAST_BRIEFING_KEY) === today) return;
+
+    const timer = setTimeout(() => {
+      window.localStorage.setItem(LAST_BRIEFING_KEY, today);
+      const prompt =
+        "(Otomatik günlük brifing) Günaydın de ve bana bugün için kısa bir brifing ver: hava " +
+        "durumu, bugüne ait ya da yaklaşan görevlerim, ve varsa hatırlamam gereken önemli bir " +
+        "şey. Kısa ve öz tut, sesli okunacak.";
+      handleSend(prompt, [], true, true);
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [hydrated]);
 
   useEffect(() => {
     if (selectedVoiceURI) window.localStorage.setItem(VOICE_URI_KEY, selectedVoiceURI);
@@ -249,6 +277,18 @@ export default function Home() {
     setTasks(updated);
   }
 
+  function handleAddMemory(text: string) {
+    const updated = [createMemoryFact(text), ...loadMemory()];
+    saveMemory(updated);
+    setMemory(updated);
+  }
+
+  function handleDeleteMemory(id: string) {
+    const updated = loadMemory().filter((m) => m.id !== id);
+    saveMemory(updated);
+    setMemory(updated);
+  }
+
   function applyTaskToolCall(input: unknown): string {
     const args = (input ?? {}) as {
       action?: string;
@@ -289,11 +329,56 @@ export default function Home() {
     return "Bilinmeyen bir işlem istendi, hiçbir şey değiştirilmedi.";
   }
 
-  async function handleSend(text: string, attachments: StoredBlock[], viaCall = false) {
+  function applyMemoryToolCall(input: unknown): string {
+    const args = (input ?? {}) as {
+      action?: string;
+      text?: string;
+      memory_id?: string;
+    };
+    const current = loadMemory();
+
+    if (args.action === "remember") {
+      const text = String(args.text ?? "").trim();
+      if (!text) return "Hatırlanacak bilgi boş olduğu için kaydedilemedi.";
+      const updated = [createMemoryFact(text), ...current];
+      saveMemory(updated);
+      setMemory(updated);
+      return `Hatırlandı: "${text}".`;
+    }
+
+    if (args.action === "update") {
+      const fact = current.find((m) => m.id === args.memory_id);
+      if (!fact) return "Belirtilen id'ye sahip bir hafıza kaydı bulunamadı.";
+      const text = String(args.text ?? "").trim();
+      if (!text) return "Güncellenecek metin boş olduğu için işlem yapılmadı.";
+      const updated = current.map((m) => (m.id === fact.id ? { ...m, text } : m));
+      saveMemory(updated);
+      setMemory(updated);
+      return `Hafıza güncellendi: "${text}".`;
+    }
+
+    if (args.action === "forget") {
+      const fact = current.find((m) => m.id === args.memory_id);
+      if (!fact) return "Belirtilen id'ye sahip bir hafıza kaydı bulunamadı.";
+      const updated = current.filter((m) => m.id !== fact.id);
+      saveMemory(updated);
+      setMemory(updated);
+      return `Unutuldu: "${fact.text}".`;
+    }
+
+    return "Bilinmeyen bir işlem istendi, hiçbir şey değiştirilmedi.";
+  }
+
+  async function handleSend(
+    text: string,
+    attachments: StoredBlock[],
+    viaCall = false,
+    hidden = false,
+  ) {
     setErrorText(null);
     stopSpeaking();
     setIsSpeaking(false);
-    playAcknowledgeSound();
+    if (!hidden) playAcknowledgeSound();
 
     let conversation = active;
     if (!conversation) {
@@ -310,9 +395,11 @@ export default function Home() {
       role: "user",
       blocks,
       createdAt: Date.now(),
+      hidden,
     };
 
-    const isFirstMessage = conversation.messages.length === 0;
+    const isFirstMessage =
+      !hidden && !conversation.messages.some((m) => m.role === "user" && !m.hidden);
     const conversationId = conversation.id;
     const historyForRequest = [...conversation.messages, userMessage];
 
@@ -365,7 +452,7 @@ export default function Home() {
     async function runChatStream(requestMessages: RequestMessage[]): Promise<{
       text: string;
       stopReason: string | null;
-      toolUse: { id: string; input: unknown } | null;
+      toolUse: { id: string; name: string; input: unknown } | null;
     }> {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -378,6 +465,7 @@ export default function Home() {
             done,
             dueLabel,
           })),
+          memory: loadMemory().map(({ id, text: t }) => ({ id, text: t })),
           nowLocal: nowLocalLabel(),
           location: locationLabel,
         }),
@@ -393,7 +481,7 @@ export default function Home() {
       let buffer = "";
       let text = "";
       let stopReason: string | null = null;
-      let toolUse: { id: string; input: unknown } | null = null;
+      let toolUse: { id: string; name: string; input: unknown } | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -422,7 +510,7 @@ export default function Home() {
             applyAssistantSources(event.sources);
             pushLog(`${event.sources.length} kaynak bulundu.`);
           } else if (event.type === "tool_use") {
-            toolUse = { id: event.id, input: event.input };
+            toolUse = { id: event.id, name: event.name, input: event.input };
           } else if (event.type === "done") {
             stopReason = event.stopReason;
           } else if (event.type === "error") {
@@ -443,15 +531,23 @@ export default function Home() {
       const phase1 = await runChatStream(requestMessages);
 
       if (phase1.stopReason === "tool_use" && phase1.toolUse) {
-        pushLog("Yapılacaklar listesi güncelleniyor...");
-        const resultText = applyTaskToolCall(phase1.toolUse.input);
+        const toolName = phase1.toolUse.name;
+        pushLog(
+          toolName === "manage_memory"
+            ? "Hafıza güncelleniyor..."
+            : "Yapılacaklar listesi güncelleniyor...",
+        );
+        const resultText =
+          toolName === "manage_memory"
+            ? applyMemoryToolCall(phase1.toolUse.input)
+            : applyTaskToolCall(phase1.toolUse.input);
 
         const assistantBlocks: RequestBlock[] = [];
         if (phase1.text.trim()) assistantBlocks.push({ type: "text", text: phase1.text });
         assistantBlocks.push({
           type: "tool_use",
           id: phase1.toolUse.id,
-          name: "manage_tasks",
+          name: toolName,
           input: phase1.toolUse.input,
         });
 
@@ -666,6 +762,27 @@ export default function Home() {
             </button>
           )}
           <button
+            onClick={() => setMemoryPanelOpen(true)}
+            className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
+            aria-label="Hafızayı aç"
+            title="Hafıza"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              <ellipse cx="12" cy="5" rx="8" ry="3" />
+              <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+              <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
+            </svg>
+          </button>
+          <button
             onClick={() => setTasksPanelOpen(true)}
             className="relative shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
             aria-label="Yapılacaklar listesini aç"
@@ -717,6 +834,7 @@ export default function Home() {
             </div>
           ) : (
             active.messages.map((message, idx) => {
+              if (message.hidden) return null;
               const isLast = idx === active.messages.length - 1;
               const isEmptyText = message.blocks.every(
                 (b) => b.type !== "text" || !b.text.trim(),
@@ -781,6 +899,14 @@ export default function Home() {
         onAdd={handleAddTask}
         onToggle={handleToggleTask}
         onDelete={handleDeleteTask}
+      />
+
+      <MemoryPanel
+        open={memoryPanelOpen}
+        onClose={() => setMemoryPanelOpen(false)}
+        memory={memory}
+        onAdd={handleAddMemory}
+        onDelete={handleDeleteMemory}
       />
 
       <VoiceCallOverlay

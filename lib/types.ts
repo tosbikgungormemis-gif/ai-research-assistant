@@ -12,6 +12,7 @@ export type StoredMessage = {
   blocks: StoredBlock[];
   createdAt: number;
   sources?: Source[];
+  hidden?: boolean;
 };
 
 export type Conversation = {
@@ -28,7 +29,7 @@ export type StreamEvent =
   | { type: "status"; text: string }
   | { type: "text"; text: string }
   | { type: "sources"; sources: Source[] }
-  | { type: "tool_use"; id: string; input: unknown }
+  | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "done"; stopReason: string | null }
   | { type: "error"; message: string };
 
@@ -37,5 +38,11 @@ export type Task = {
   text: string;
   done: boolean;
   dueLabel: string | null;
+  createdAt: number;
+};
+
+export type Memory = {
+  id: string;
+  text: string;
   createdAt: number;
 };

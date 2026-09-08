@@ -9,11 +9,13 @@ const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
 const MAX_TOKENS = Number(process.env.ANTHROPIC_MAX_TOKENS) || 16000;
 
 type TaskSnapshot = { id: string; text: string; done: boolean; dueLabel: string | null };
+type MemorySnapshot = { id: string; text: string };
 
 function buildSystemPrompt(
   nowLocal: string | undefined,
   tasks: TaskSnapshot[],
   location: string | null | undefined,
+  memory: MemorySnapshot[],
 ): string {
   const taskLines =
     tasks.length === 0
@@ -24,6 +26,11 @@ function buildSystemPrompt(
               `- [${t.done ? "x" : " "}] id=${t.id} :: ${t.text}${t.dueLabel ? ` (${t.dueLabel})` : ""}`,
           )
           .join("\n");
+
+  const memoryLines =
+    memory.length === 0
+      ? "(Henüz hiçbir şey hatırlanmıyor.)"
+      : memory.map((m) => `- id=${m.id} :: ${m.text}`).join("\n");
 
   return `You are Jarvis — a sharp, witty, unflappable AI assistant in the spirit of the AI
 from the Marvel films, built on Claude. You help the user research topics, answer general
@@ -38,6 +45,9 @@ The user's current location (approximate, from their device): ${location ?? "bil
 
 The user's current to-do list (id :: text :: due label if any):
 ${taskLines}
+
+Things you permanently remember about the user across all conversations (id :: fact):
+${memoryLines}
 
 - Reply in the same language the user writes in.
 - Be conversational and concise for simple asks. For research-heavy questions, structure the
@@ -66,6 +76,16 @@ ${taskLines}
   a task was added/completed/deleted, that is the SAME item already shown in the list — it is not
   a second, separate item. Never tell the user there are duplicates or two copies based on seeing
   both the list and the tool result; they describe the same single change.
+- You can see everything you permanently remember about the user above at all times. When the user
+  tells you something worth remembering long-term — their name, a preference, a recurring fact, an
+  important date, anything that would be useful to know in a future, unrelated conversation — call
+  the manage_memory tool with action=remember to save it. If they correct something already in the
+  list, use action=update with that fact's id. If they explicitly say to forget something, or it's
+  no longer true, use action=forget. Don't save one-off, conversation-specific details that have no
+  future value.
+- Use what you remember naturally in conversation (e.g. addressing the user by name, factoring in a
+  known preference) without constantly announcing "I remember that...". After a manage_memory tool
+  result, confirm briefly in your own words rather than repeating the raw result.
 - A little wit is welcome; being unhelpful, evasive, or padding your answer for effect is not.`;
 }
 
@@ -102,6 +122,33 @@ const TASKS_TOOL: Anthropic.Tool = {
   },
 };
 
+const MEMORY_TOOL: Anthropic.Tool = {
+  name: "manage_memory",
+  description:
+    "Kullanıcı hakkında ileride, farklı konuşmalarda da işine yarayacak kalıcı bir bilgiyi " +
+    "(isim, tercih, tekrar eden bir gerçek, önemli bir tarih vb.) kaydetmek, düzeltmek ya da " +
+    "silmek için kullanılır. Sadece o anki konuşmaya özel, tek seferlik bilgiler için çağırma.",
+  input_schema: {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["remember", "update", "forget"],
+        description: "Yapılacak işlem türü.",
+      },
+      text: {
+        type: "string",
+        description: "action=remember için kaydedilecek bilgi, action=update için yeni metin.",
+      },
+      memory_id: {
+        type: "string",
+        description: "action=update veya action=forget için etkilenecek hafıza kaydının id'si.",
+      },
+    },
+    required: ["action"],
+  },
+};
+
 type ChatRequestBlock =
   | StoredBlock
   | { type: "tool_use"; id: string; name: string; input: unknown }
@@ -110,6 +157,7 @@ type ChatRequestBlock =
 type ChatRequestBody = {
   messages: { role: "user" | "assistant"; blocks: ChatRequestBlock[] }[];
   tasks?: TaskSnapshot[];
+  memory?: MemorySnapshot[];
   nowLocal?: string;
   location?: string | null;
 };
@@ -161,7 +209,12 @@ export async function POST(req: Request) {
   }
 
   const anthropicMessages = toAnthropicMessages(body.messages);
-  const systemPrompt = buildSystemPrompt(body.nowLocal, body.tasks ?? [], body.location);
+  const systemPrompt = buildSystemPrompt(
+    body.nowLocal,
+    body.tasks ?? [],
+    body.location,
+    body.memory ?? [],
+  );
 
   const encoder = new TextEncoder();
 
@@ -183,6 +236,7 @@ export async function POST(req: Request) {
               max_uses: 5,
             },
             TASKS_TOOL,
+            MEMORY_TOOL,
           ],
           messages: anthropicMessages,
         });
@@ -221,8 +275,11 @@ export async function POST(req: Request) {
 
         if (finalMessage.stop_reason === "tool_use") {
           for (const block of finalMessage.content) {
-            if (block.type === "tool_use" && block.name === "manage_tasks") {
-              send({ type: "tool_use", id: block.id, input: block.input });
+            if (
+              block.type === "tool_use" &&
+              (block.name === "manage_tasks" || block.name === "manage_memory")
+            ) {
+              send({ type: "tool_use", id: block.id, name: block.name, input: block.input });
             }
           }
         }
