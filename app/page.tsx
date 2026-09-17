@@ -1,920 +1,230 @@
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-import Sidebar from "@/components/Sidebar";
-import ChatMessage from "@/components/ChatMessage";
-import ChatInput from "@/components/ChatInput";
-import JarvisOrb, { type JarvisState } from "@/components/JarvisOrb";
-import ActivityLog, { type LogEntry } from "@/components/ActivityLog";
-import VoicePicker from "@/components/VoicePicker";
-import TaskPanel from "@/components/TaskPanel";
-import MemoryPanel from "@/components/MemoryPanel";
-import VoiceCallOverlay from "@/components/VoiceCallOverlay";
-import {
-  createConversation,
-  loadConversations,
-  newId,
-  saveConversations,
-  titleFromMessage,
-} from "@/lib/storage";
-import { loadTasks, saveTasks, createTask } from "@/lib/tasks";
-import { loadMemory, saveMemory, createMemoryFact } from "@/lib/memory";
-import {
-  getAvailableVoices,
-  isSpeechRecognitionSupported,
-  isSpeechSynthesisSupported,
-  onVoicesChanged,
-  speakJarvis,
-  startListening,
-  stopSpeaking,
-} from "@/lib/speech";
-import type { Conversation, Memory, Source, StoredBlock, StoredMessage, Task } from "@/lib/types";
-
-function nowLocalLabel(): string {
-  return new Date().toLocaleString("tr-TR", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function timeStamp(): string {
-  return new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function playAcknowledgeSound() {
-  try {
-    const audio = new Audio("/sounds/acknowledge.mp3");
-    audio.volume = 0.9;
-    audio.play().catch(() => {});
-  } catch {}
-}
-
-const VOICE_URI_KEY = "jarvis:voice-uri";
-const LAST_BRIEFING_KEY = "jarvis:last-briefing-date";
-
-function todayKey(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-}
-
-export default function Home() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [statusText, setStatusText] = useState<string | null>(null);
-  const [errorText, setErrorText] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [logOpen, setLogOpen] = useState(false);
-  const [activityLog, setActivityLog] = useState<LogEntry[]>([]);
-  const [voiceSupported, setVoiceSupported] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string | null>(null);
-  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
-  const [memory, setMemory] = useState<Memory[]>([]);
-  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
-  const [callActive, setCallActive] = useState(false);
-  const [callHint, setCallHint] = useState("Dinliyorum...");
-  const [callSupported, setCallSupported] = useState(false);
-  const [locationLabel, setLocationLabel] = useState<string | null>(null);
-  const [clockLabel, setClockLabel] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const callStopRef = useRef(false);
-  const callRecognitionRef = useRef<{ stop: () => void } | null>(null);
-
-  function pushLog(text: string) {
-    setActivityLog((prev) => [...prev.slice(-49), { id: newId(), text, time: timeStamp() }]);
-  }
-
-  const jarvisState: JarvisState = isListening
-    ? "listening"
-    : isSpeaking
-    ? "speaking"
-    : !isStreaming
-    ? "idle"
-    : statusText
-    ? "thinking"
-    : "speaking";
-
-  function handleListeningChange(listening: boolean) {
-    setIsListening(listening);
-    if (listening) {
-      stopSpeaking();
-      setIsSpeaking(false);
-    }
-  }
-
-  useEffect(() => {
-    const loaded = loadConversations();
-    setConversations(loaded);
-    setActiveId(loaded[0]?.id ?? null);
-    setTasks(loadTasks());
-    setMemory(loadMemory());
-    setHydrated(true);
-
-    setVoiceSupported(isSpeechSynthesisSupported());
-    setCallSupported(isSpeechRecognitionSupported() && isSpeechSynthesisSupported());
-    setSelectedVoiceURI(window.localStorage.getItem(VOICE_URI_KEY));
-
-    function refreshVoices() {
-      setAvailableVoices(getAvailableVoices("tr"));
-    }
-    refreshVoices();
-    const unsubscribe = onVoicesChanged(refreshVoices);
-    return unsubscribe;
-  }, []);
-
-  useEffect(() => {
-    const audio = new Audio("/sounds/startup.mp3");
-    audio.volume = 0.85;
-
-    function cleanupListeners() {
-      window.removeEventListener("pointerdown", onInteract);
-      window.removeEventListener("keydown", onInteract);
-    }
-
-    function onInteract() {
-      audio.play().then(cleanupListeners).catch(() => {});
-    }
-
-    audio.play().then(cleanupListeners).catch(() => {
-      window.addEventListener("pointerdown", onInteract);
-      window.addEventListener("keydown", onInteract);
-    });
-
-    return cleanupListeners;
-  }, []);
-
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        try {
-          const res = await fetch(
-            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=tr`,
-          );
-          const data = await res.json();
-          const label = [data.city || data.locality, data.principalSubdivision, data.countryName]
-            .filter(Boolean)
-            .join(", ");
-          setLocationLabel(label || null);
-        } catch {
-          setLocationLabel(null);
-        }
-      },
-      () => setLocationLabel(null),
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
-    );
-  }, []);
-
-  useEffect(() => {
-    setClockLabel(timeStamp());
-    const interval = setInterval(() => setClockLabel(timeStamp()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const today = todayKey();
-    if (window.localStorage.getItem(LAST_BRIEFING_KEY) === today) return;
-
-    const timer = setTimeout(() => {
-      window.localStorage.setItem(LAST_BRIEFING_KEY, today);
-      const prompt =
-        "(Otomatik günlük brifing) Günaydın de ve bana bugün için kısa bir brifing ver: hava " +
-        "durumu, bugüne ait ya da yaklaşan görevlerim, ve varsa hatırlamam gereken önemli bir " +
-        "şey. Kısa ve öz tut, sesli okunacak.";
-      handleSend(prompt, [], true, true);
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, [hydrated]);
-
-  useEffect(() => {
-    if (selectedVoiceURI) window.localStorage.setItem(VOICE_URI_KEY, selectedVoiceURI);
-    else window.localStorage.removeItem(VOICE_URI_KEY);
-  }, [selectedVoiceURI]);
-
-  useEffect(() => {
-    function onBeforeInstallPrompt(e: Event) {
-      e.preventDefault();
-      setInstallPrompt(e);
-    }
-    function onAppInstalled() {
-      setInstallPrompt(null);
-    }
-    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-    window.addEventListener("appinstalled", onAppInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", onAppInstalled);
-    };
-  }, []);
-
-  async function handleInstall() {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    await installPrompt.userChoice;
-    setInstallPrompt(null);
-  }
-
-  useEffect(() => {
-    if (!hydrated) return;
-    saveConversations(conversations);
-  }, [conversations, hydrated]);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [conversations, activeId, statusText]);
-
-  const active = conversations.find((c) => c.id === activeId) ?? null;
-
-  function updateConversation(id: string, updater: (c: Conversation) => Conversation) {
-    setConversations((prev) => prev.map((c) => (c.id === id ? updater(c) : c)));
-  }
-
-  function handleNewConversation() {
-    const conversation = createConversation();
-    setConversations((prev) => [conversation, ...prev]);
-    setActiveId(conversation.id);
-  }
-
-  function handleDeleteConversation(id: string) {
-    setConversations((prev) => prev.filter((c) => c.id !== id));
-    if (activeId === id) {
-      setActiveId((prev) => {
-        const remaining = conversations.filter((c) => c.id !== id);
-        return remaining[0]?.id ?? null;
-      });
-    }
-  }
-
-  function handleAddTask(text: string, dueLabel: string | null) {
-    const updated = [createTask(text, dueLabel), ...loadTasks()];
-    saveTasks(updated);
-    setTasks(updated);
-  }
-
-  function handleToggleTask(id: string) {
-    const updated = loadTasks().map((t) => (t.id === id ? { ...t, done: !t.done } : t));
-    saveTasks(updated);
-    setTasks(updated);
-  }
-
-  function handleDeleteTask(id: string) {
-    const updated = loadTasks().filter((t) => t.id !== id);
-    saveTasks(updated);
-    setTasks(updated);
-  }
-
-  function handleAddMemory(text: string) {
-    const updated = [createMemoryFact(text), ...loadMemory()];
-    saveMemory(updated);
-    setMemory(updated);
-  }
-
-  function handleDeleteMemory(id: string) {
-    const updated = loadMemory().filter((m) => m.id !== id);
-    saveMemory(updated);
-    setMemory(updated);
-  }
-
-  function applyTaskToolCall(input: unknown): string {
-    const args = (input ?? {}) as {
-      action?: string;
-      text?: string;
-      due_text?: string;
-      task_id?: string;
-    };
-    const current = loadTasks();
-
-    if (args.action === "add") {
-      const text = String(args.text ?? "").trim();
-      if (!text) return "Görev metni boş olduğu için eklenemedi.";
-      const dueLabel = args.due_text ? String(args.due_text).trim() : null;
-      const updated = [createTask(text, dueLabel || null), ...current];
-      saveTasks(updated);
-      setTasks(updated);
-      return `Görev eklendi: "${text}"${dueLabel ? ` (${dueLabel})` : ""}.`;
-    }
-
-    if (args.action === "complete") {
-      const task = current.find((t) => t.id === args.task_id);
-      if (!task) return "Belirtilen id'ye sahip bir görev bulunamadı.";
-      const updated = current.map((t) => (t.id === task.id ? { ...t, done: true } : t));
-      saveTasks(updated);
-      setTasks(updated);
-      return `Görev tamamlandı olarak işaretlendi: "${task.text}".`;
-    }
-
-    if (args.action === "delete") {
-      const task = current.find((t) => t.id === args.task_id);
-      if (!task) return "Belirtilen id'ye sahip bir görev bulunamadı.";
-      const updated = current.filter((t) => t.id !== task.id);
-      saveTasks(updated);
-      setTasks(updated);
-      return `Görev silindi: "${task.text}".`;
-    }
-
-    return "Bilinmeyen bir işlem istendi, hiçbir şey değiştirilmedi.";
-  }
-
-  function applyMemoryToolCall(input: unknown): string {
-    const args = (input ?? {}) as {
-      action?: string;
-      text?: string;
-      memory_id?: string;
-    };
-    const current = loadMemory();
-
-    if (args.action === "remember") {
-      const text = String(args.text ?? "").trim();
-      if (!text) return "Hatırlanacak bilgi boş olduğu için kaydedilemedi.";
-      const updated = [createMemoryFact(text), ...current];
-      saveMemory(updated);
-      setMemory(updated);
-      return `Hatırlandı: "${text}".`;
-    }
-
-    if (args.action === "update") {
-      const fact = current.find((m) => m.id === args.memory_id);
-      if (!fact) return "Belirtilen id'ye sahip bir hafıza kaydı bulunamadı.";
-      const text = String(args.text ?? "").trim();
-      if (!text) return "Güncellenecek metin boş olduğu için işlem yapılmadı.";
-      const updated = current.map((m) => (m.id === fact.id ? { ...m, text } : m));
-      saveMemory(updated);
-      setMemory(updated);
-      return `Hafıza güncellendi: "${text}".`;
-    }
-
-    if (args.action === "forget") {
-      const fact = current.find((m) => m.id === args.memory_id);
-      if (!fact) return "Belirtilen id'ye sahip bir hafıza kaydı bulunamadı.";
-      const updated = current.filter((m) => m.id !== fact.id);
-      saveMemory(updated);
-      setMemory(updated);
-      return `Unutuldu: "${fact.text}".`;
-    }
-
-    return "Bilinmeyen bir işlem istendi, hiçbir şey değiştirilmedi.";
-  }
-
-  async function handleSend(
-    text: string,
-    attachments: StoredBlock[],
-    viaCall = false,
-    hidden = false,
-  ) {
-    setErrorText(null);
-    stopSpeaking();
-    setIsSpeaking(false);
-    if (!hidden) playAcknowledgeSound();
-
-    let conversation = active;
-    if (!conversation) {
-      conversation = createConversation();
-      setConversations((prev) => [conversation!, ...prev]);
-      setActiveId(conversation.id);
-    }
-
-    const blocks: StoredBlock[] = [...attachments];
-    if (text) blocks.push({ type: "text", text });
-
-    const userMessage: StoredMessage = {
-      id: newId(),
-      role: "user",
-      blocks,
-      createdAt: Date.now(),
-      hidden,
-    };
-
-    const isFirstMessage =
-      !hidden && !conversation.messages.some((m) => m.role === "user" && !m.hidden);
-    const conversationId = conversation.id;
-    const historyForRequest = [...conversation.messages, userMessage];
-
-    updateConversation(conversationId, (c) => ({
-      ...c,
-      title: isFirstMessage ? titleFromMessage(userMessage) : c.title,
-      messages: [...c.messages, userMessage],
-      updatedAt: Date.now(),
-    }));
-
-    const assistantId = newId();
-    const assistantMessage: StoredMessage = {
-      id: assistantId,
-      role: "assistant",
-      blocks: [{ type: "text", text: "" }],
-      createdAt: Date.now(),
-    };
-
-    updateConversation(conversationId, (c) => ({
-      ...c,
-      messages: [...c.messages, assistantMessage],
-    }));
-
-    setIsStreaming(true);
-    setStatusText(null);
-    pushLog(`Komut alındı: "${text || "(dosya eki)"}"`.slice(0, 90));
-
-    let accumulatedText = "";
-    let respondingLogged = false;
-
-    function applyAssistantText(text: string) {
-      updateConversation(conversationId, (c) => ({
-        ...c,
-        messages: c.messages.map((m) =>
-          m.id === assistantId ? { ...m, blocks: [{ type: "text", text }] } : m,
-        ),
-      }));
-    }
-
-    function applyAssistantSources(sources: Source[]) {
-      updateConversation(conversationId, (c) => ({
-        ...c,
-        messages: c.messages.map((m) => (m.id === assistantId ? { ...m, sources } : m)),
-      }));
-    }
-
-    type RequestBlock = Record<string, unknown>;
-    type RequestMessage = { role: "user" | "assistant"; blocks: RequestBlock[] };
-
-    async function runChatStream(requestMessages: RequestMessage[]): Promise<{
-      text: string;
-      stopReason: string | null;
-      toolUse: { id: string; name: string; input: unknown } | null;
-    }> {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: requestMessages,
-          tasks: loadTasks().map(({ id, text: t, done, dueLabel }) => ({
-            id,
-            text: t,
-            done,
-            dueLabel,
-          })),
-          memory: loadMemory().map(({ id, text: t }) => ({ id, text: t })),
-          nowLocal: nowLocalLabel(),
-          location: locationLabel,
-        }),
-      });
-
-      if (!response.ok || !response.body) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error ?? `İstek başarısız oldu (${response.status}).`);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let text = "";
-      let stopReason: string | null = null;
-      let toolUse: { id: string; name: string; input: unknown } | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line);
-
-          if (event.type === "status") {
-            setStatusText(event.text);
-            pushLog(event.text);
-          } else if (event.type === "text") {
-            if (!respondingLogged) {
-              pushLog("Yanıt oluşturuluyor...");
-              respondingLogged = true;
-            }
-            setStatusText(null);
-            text += event.text;
-            applyAssistantText(text);
-          } else if (event.type === "sources") {
-            applyAssistantSources(event.sources);
-            pushLog(`${event.sources.length} kaynak bulundu.`);
-          } else if (event.type === "tool_use") {
-            toolUse = { id: event.id, name: event.name, input: event.input };
-          } else if (event.type === "done") {
-            stopReason = event.stopReason;
-          } else if (event.type === "error") {
-            throw new Error(event.message);
-          }
-        }
-      }
-
-      return { text, stopReason, toolUse };
-    }
-
-    try {
-      const requestMessages: RequestMessage[] = historyForRequest.map((m) => ({
-        role: m.role,
-        blocks: m.blocks,
-      }));
-
-      const phase1 = await runChatStream(requestMessages);
-
-      if (phase1.stopReason === "tool_use" && phase1.toolUse) {
-        const toolName = phase1.toolUse.name;
-        pushLog(
-          toolName === "manage_memory"
-            ? "Hafıza güncelleniyor..."
-            : "Yapılacaklar listesi güncelleniyor...",
-        );
-        const resultText =
-          toolName === "manage_memory"
-            ? applyMemoryToolCall(phase1.toolUse.input)
-            : applyTaskToolCall(phase1.toolUse.input);
-
-        const assistantBlocks: RequestBlock[] = [];
-        if (phase1.text.trim()) assistantBlocks.push({ type: "text", text: phase1.text });
-        assistantBlocks.push({
-          type: "tool_use",
-          id: phase1.toolUse.id,
-          name: toolName,
-          input: phase1.toolUse.input,
-        });
-
-        const continuationMessages: RequestMessage[] = [
-          ...requestMessages,
-          { role: "assistant", blocks: assistantBlocks },
-          {
-            role: "user",
-            blocks: [
-              { type: "tool_result", tool_use_id: phase1.toolUse.id, content: resultText },
-            ],
-          },
-        ];
-
-        applyAssistantText("");
-        const phase2 = await runChatStream(continuationMessages);
-        accumulatedText = phase2.text.trim() ? phase2.text : resultText;
-        applyAssistantText(accumulatedText);
-      } else {
-        accumulatedText = phase1.text;
-      }
-
-      pushLog("Yanıt tamamlandı.");
-      if (viaCall && accumulatedText) {
-        await speakJarvis(accumulatedText, {
-          voiceURI: selectedVoiceURI,
-          onStart: () => setIsSpeaking(true),
-          onEnd: () => setIsSpeaking(false),
-        });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Beklenmeyen bir hata oluştu.";
-      setErrorText(message);
-      pushLog(`Hata: ${message}`.slice(0, 90));
-      if (!accumulatedText) {
-        applyAssistantText(`⚠️ ${message}`);
-      }
-    } finally {
-      setIsStreaming(false);
-      setStatusText(null);
-    }
-  }
-
-  function listenOnce(): Promise<string | null> {
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (value: string | null) => {
-        if (settled) return;
-        settled = true;
-        resolve(value);
-      };
-      const handle = startListening({
-        onInterim: (interim) => setCallHint(interim || "Dinliyorum..."),
-        onFinal: (finalText) => settle(finalText),
-        onEnd: () => settle(null),
-        onError: () => settle(null),
-      });
-      if (!handle) {
-        settle(null);
-        return;
-      }
-      callRecognitionRef.current = handle;
-    });
-  }
-
-  async function startCallMode() {
-    if (!isSpeechRecognitionSupported()) {
-      setErrorText("Bu tarayıcı sesli görüşmeyi desteklemiyor.");
-      return;
-    }
-    stopSpeaking();
-    setIsSpeaking(false);
-    callStopRef.current = false;
-    setCallActive(true);
-
-    let consecutiveMisses = 0;
-    while (!callStopRef.current) {
-      setIsListening(true);
-      setCallHint("Dinliyorum...");
-      const heard = await listenOnce();
-      setIsListening(false);
-      if (callStopRef.current) break;
-
-      if (!heard) {
-        consecutiveMisses += 1;
-        if (consecutiveMisses >= 20) {
-          setCallHint("Bir şey duyamadım, görüşmeyi kapatıyorum.");
-          break;
-        }
-        continue;
-      }
-      consecutiveMisses = 0;
-
-      setCallHint(`"${heard}"`);
-      await handleSend(heard, [], true);
-      if (callStopRef.current) break;
-    }
-
-    endCallMode();
-  }
-
-  function endCallMode() {
-    callStopRef.current = true;
-    callRecognitionRef.current?.stop();
-    stopSpeaking();
-    setIsSpeaking(false);
-    setIsListening(false);
-    setCallActive(false);
-  }
-
+import type { Metadata } from "next";
+import QrShare from "@/components/QrShare";
+
+export const metadata: Metadata = {
+  title: "8-A Sınıfı | Türk Maarif Koleji",
+  description: "Türk Maarif Koleji 8-A sınıfı duyuruları, ders programı ve iletişim bilgileri.",
+};
+
+const KAPTAN_ADI = "Ayşe Ceren Yanardağ";
+
+const duyurular = [
+  {
+    tarih: "Örnek tarih",
+    baslik: "Örnek duyuru başlığı",
+    metin: "Bu bir örnek duyurudur. Bu alanı kendi duyurularınızla değiştirebilirsiniz.",
+  },
+];
+
+type Ders = { ders: string; ogretmen?: string } | null;
+
+const periods = [
+  { key: "d1", label: "1. Ders", time: "07:55–08:35" },
+  { key: "b1", label: "Ara", time: "08:35–08:45", isBreak: true },
+  { key: "d2", label: "2. Ders", time: "08:45–09:25" },
+  { key: "d3", label: "3. Ders", time: "09:25–10:05" },
+  { key: "b2", label: "Ara", time: "10:05–10:15", isBreak: true },
+  { key: "d4", label: "4. Ders", time: "10:15–10:55" },
+  { key: "d5", label: "5. Ders", time: "10:55–11:35" },
+  { key: "b3", label: "Ara", time: "11:35–11:45", isBreak: true },
+  { key: "d6", label: "6. Ders", time: "11:45–12:25" },
+  { key: "d7", label: "7. Ders", time: "12:25–13:05" },
+  { key: "lunch", label: "Öğle Arası", time: "13:05–14:00", isBreak: true },
+  { key: "d8", label: "8. Ders", time: "14:00–14:40" },
+  { key: "d9", label: "9. Ders", time: "14:40–15:20" },
+] as const;
+
+const dersProgrami: { gun: string; dersler: Record<string, Ders> }[] = [
+  {
+    gun: "Pazartesi",
+    dersler: {
+      d1: { ders: "PHYSICS", ogretmen: "Dilara Dağ" },
+      d2: { ders: "TÜRKÇE", ogretmen: "Çise Sönmez" },
+      d3: { ders: "GEOGRAPHY", ogretmen: "Nuray Özgeçen" },
+      d4: { ders: "TÜRKİYE TARİHİ", ogretmen: "Pınar Şarap" },
+      d5: { ders: "BIOLOGY", ogretmen: "Sermet Benli" },
+      d6: { ders: "ENGLISH", ogretmen: "Emine Sülün" },
+      d7: { ders: "MÜZİK", ogretmen: "Suzan Özgü" },
+      d8: { ders: "MATH", ogretmen: "Şebnem Karahanlı" },
+      d9: { ders: "ENGLISH", ogretmen: "Ayşın Daher" },
+    },
+  },
+  {
+    gun: "Salı",
+    dersler: {
+      d1: { ders: "GERMAN", ogretmen: "Bingül Küçük" },
+      d2: { ders: "PHYSICS", ogretmen: "Dilara Dağ" },
+      d3: { ders: "MATH", ogretmen: "Şebnem Karahanlı" },
+      d4: { ders: "MÜZİK", ogretmen: "Suzan Özgü" },
+      d5: { ders: "ENGLISH", ogretmen: "Emine Sülün" },
+      d6: { ders: "TÜRKÇE", ogretmen: "Çise Sönmez" },
+      d7: { ders: "ENGLISH", ogretmen: "Ayşın Daher" },
+      d8: null,
+      d9: null,
+    },
+  },
+  {
+    gun: "Çarşamba",
+    dersler: {
+      d1: { ders: "GERMAN", ogretmen: "Bingül Küçük" },
+      d2: { ders: "GERMAN", ogretmen: "Bingül Küçük" },
+      d3: { ders: "MATH", ogretmen: "Şebnem Karahanlı" },
+      d4: { ders: "BOŞ DERS :)" },
+      d5: { ders: "TÜRKÇE", ogretmen: "Çise Sönmez" },
+      d6: { ders: "P.E – Saha 1", ogretmen: "Salih Bittacı" },
+      d7: { ders: "P.E – Saha 1", ogretmen: "Salih Bittacı" },
+      d8: null,
+      d9: null,
+    },
+  },
+  {
+    gun: "Perşembe",
+    dersler: {
+      d1: { ders: "CHEMISTRY", ogretmen: "Yasemin Toykan" },
+      d2: { ders: "TÜRKÇE", ogretmen: "Çise Sönmez" },
+      d3: { ders: "MATH", ogretmen: "Şebnem Karahanlı" },
+      d4: { ders: "ICT – ICT 1", ogretmen: "Ali Sener" },
+      d5: { ders: "TÜRKİYE TARİHİ", ogretmen: "Pınar Şarap" },
+      d6: { ders: "ENGLISH", ogretmen: "Ayşın Daher" },
+      d7: { ders: "ENGLISH", ogretmen: "Emine Sülün" },
+      d8: { ders: "BIOLOGY", ogretmen: "Sermet Benli" },
+      d9: { ders: "CHEMISTRY", ogretmen: "Yasemin Toykan" },
+    },
+  },
+  {
+    gun: "Cuma",
+    dersler: {
+      d1: { ders: "MATH", ogretmen: "Şebnem Karahanlı" },
+      d2: { ders: "ENGLISH", ogretmen: "Ayşın Daher" },
+      d3: { ders: "ENGLISH", ogretmen: "Emine Sülün" },
+      d4: { ders: "TÜRKÇE", ogretmen: "Çise Sönmez" },
+      d5: { ders: "Counselling", ogretmen: "Saziye Avcıkadir" },
+      d6: { ders: "CYPRUS HISTORY", ogretmen: "Ülfet Kılıç" },
+      d7: { ders: "HISTORY (ENG)", ogretmen: "Ceren Ataman" },
+      d8: null,
+      d9: null,
+    },
+  },
+];
+
+const sinifBilgisi = {
+  mevcut: "Öğrenci mevcudu buraya eklenecek",
+  kaptanIletisim: "Kaptan iletişim bilgisi buraya eklenecek",
+  ogretmenIletisim: "Sınıf öğretmeni iletişim bilgisi buraya eklenecek",
+};
+
+export default function SinifSayfasi() {
   return (
-    <main className="flex h-dvh bg-surface">
-      <Sidebar
-        conversations={conversations}
-        activeId={activeId}
-        onSelect={(id) => {
-          stopSpeaking();
-          setIsSpeaking(false);
-          setActiveId(id);
-        }}
-        onNew={() => {
-          stopSpeaking();
-          setIsSpeaking(false);
-          handleNewConversation();
-        }}
-        onDelete={handleDeleteConversation}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-white/10 bg-black/40 px-3 py-1 text-[10px] font-semibold tracking-[0.15em] text-glow/80 md:px-4">
-          <span>SYSTEM // ONLINE</span>
-          <span className="hidden text-slate-400 sm:inline">J·A·R·V·I·S</span>
-          <span className="tabular-nums">{clockLabel}</span>
-        </div>
-        <header className="flex items-center gap-3 border-b border-white/10 px-3 py-2.5 md:px-4">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 md:hidden"
-            aria-label="Sohbet listesini aç"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              className="h-5 w-5"
-            >
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
-          </button>
-          <JarvisOrb state={jarvisState} size={28} showLabel={false} />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold tracking-[0.25em] text-glow">JARVIS</p>
-            <h1 className="truncate text-xs text-slate-500">{active?.title ?? "Yeni sohbet"}</h1>
-          </div>
-          {installPrompt && (
-            <button
-              onClick={handleInstall}
-              className="shrink-0 rounded-lg border border-glow/40 px-2.5 py-1 text-[11px] font-medium text-glow transition hover:bg-glow/10"
-            >
-              Yükle
-            </button>
-          )}
-          {callSupported && (
-            <button
-              onClick={startCallMode}
-              className="shrink-0 rounded-lg p-1.5 text-glow transition hover:bg-white/5"
-              aria-label="Sesli görüşme başlat"
-              title="Sesli görüşme"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-5 w-5"
-              >
-                <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                <path d="M16 8a5 5 0 0 1 0 8" />
-                <path d="M18.5 5.5a9 9 0 0 1 0 13" />
-              </svg>
-            </button>
-          )}
-          {voiceSupported && (
-            <button
-              onClick={() => setVoicePickerOpen(true)}
-              className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
-              aria-label="Jarvis sesini seç"
-              title="Ses seç"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                className="h-5 w-5"
-              >
-                <line x1="6" y1="20" x2="6" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="18" y1="20" x2="18" y2="14" />
-              </svg>
-            </button>
-          )}
-          <button
-            onClick={() => setMemoryPanelOpen(true)}
-            className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
-            aria-label="Hafızayı aç"
-            title="Hafıza"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-5 w-5"
-            >
-              <ellipse cx="12" cy="5" rx="8" ry="3" />
-              <path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
-              <path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setTasksPanelOpen(true)}
-            className="relative shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5"
-            aria-label="Yapılacaklar listesini aç"
-            title="Yapılacaklar"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-5 w-5"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="3" />
-              <path d="m8 12 2.5 2.5L16 9" />
-            </svg>
-            {tasks.some((t) => !t.done) && (
-              <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-amber" />
-            )}
-          </button>
-          <button
-            onClick={() => setLogOpen(true)}
-            className="shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-white/5 lg:hidden"
-            aria-label="Aktivite günlüğünü aç"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              className="h-5 w-5"
-            >
-              <path d="M4 6h16M4 12h10M4 18h7" />
-            </svg>
-          </button>
+    <main className="min-h-screen bg-surface px-4 py-10 text-slate-100 sm:px-8">
+      <div className="mx-auto flex max-w-3xl flex-col gap-8">
+        <header className="text-center">
+          <p className="text-sm uppercase tracking-widest text-accent">
+            Türk Maarif Koleji
+          </p>
+          <h1 className="mt-1 text-3xl font-bold sm:text-4xl">8-A Sınıfı</h1>
+          <p className="mt-2 text-sm text-slate-400">Kaptan: {KAPTAN_ADI}</p>
         </header>
 
-        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
-          {!active || active.messages.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <JarvisOrb state={jarvisState} size={132} />
-              <p className="mt-5 text-lg font-medium text-slate-300">
-                Emrinizdeyim, efendim.
-              </p>
-            </div>
-          ) : (
-            active.messages.map((message, idx) => {
-              if (message.hidden) return null;
-              const isLast = idx === active.messages.length - 1;
-              const isEmptyText = message.blocks.every(
-                (b) => b.type !== "text" || !b.text.trim(),
-              );
-              const pending =
-                isLast && isStreaming && message.role === "assistant" && isEmptyText;
-              return <ChatMessage key={message.id} message={message} pending={pending} />;
-            })
-          )}
-          {statusText && (
-            <p className="pl-1 text-xs italic text-[#34d399]">{statusText}</p>
-          )}
-        </div>
+        <section className="rounded-2xl border border-white/10 bg-panel p-6">
+          <h2 className="mb-4 text-xl font-semibold text-glow">📢 Duyurular</h2>
+          <ul className="flex flex-col gap-4">
+            {duyurular.map((duyuru, i) => (
+              <li key={i} className="rounded-xl bg-black/20 p-4">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-medium">{duyuru.baslik}</span>
+                  <span className="shrink-0 text-xs text-slate-500">{duyuru.tarih}</span>
+                </div>
+                <p className="mt-1 text-sm text-slate-300">{duyuru.metin}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
 
-        {errorText && (
-          <div className="mx-4 mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
-            {errorText}
+        <section className="rounded-2xl border border-white/10 bg-panel p-6">
+          <h2 className="mb-4 text-xl font-semibold text-glow">📅 Ders Programı</h2>
+          <p className="mb-3 text-xs text-slate-500">
+            Tabloyu görmek için yatay kaydırın →
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1000px] border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 z-10 bg-panel px-2 py-2 text-left text-slate-400">
+                    Gün
+                  </th>
+                  {periods.map((p) => (
+                    <th
+                      key={p.key}
+                      className={`px-2 py-2 text-center text-xs font-medium ${
+                        "isBreak" in p && p.isBreak ? "text-slate-600" : "text-slate-400"
+                      }`}
+                    >
+                      <div>{p.label}</div>
+                      <div className="font-normal">{p.time}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dersProgrami.map((gun) => (
+                  <tr key={gun.gun} className="border-t border-white/5">
+                    <td className="sticky left-0 z-10 bg-panel px-2 py-2 font-medium">
+                      {gun.gun}
+                    </td>
+                    {periods.map((p) => {
+                      if ("isBreak" in p && p.isBreak) {
+                        return (
+                          <td
+                            key={p.key}
+                            className="px-2 py-2 text-center text-xs text-slate-600"
+                          >
+                            {p.key === "lunch" ? "Yemek" : "—"}
+                          </td>
+                        );
+                      }
+                      const ders = gun.dersler[p.key];
+                      return (
+                        <td key={p.key} className="px-2 py-2 text-center text-slate-300">
+                          {ders ? (
+                            <>
+                              <div className="font-medium text-slate-100">{ders.ders}</div>
+                              {ders.ogretmen && (
+                                <div className="text-xs text-slate-500">{ders.ogretmen}</div>
+                              )}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+        </section>
 
-        <ChatInput
-          disabled={isStreaming}
-          onSend={handleSend}
-          onListeningChange={handleListeningChange}
-        />
+        <section className="rounded-2xl border border-white/10 bg-panel p-6">
+          <h2 className="mb-4 text-xl font-semibold text-glow">🧑‍🤝‍🧑 Sınıf Listesi / İletişim</h2>
+          <ul className="flex flex-col gap-2 text-sm text-slate-300">
+            <li>
+              <span className="text-slate-500">Öğrenci mevcudu: </span>
+              {sinifBilgisi.mevcut}
+            </li>
+            <li>
+              <span className="text-slate-500">Kaptan: </span>
+              {KAPTAN_ADI} — {sinifBilgisi.kaptanIletisim}
+            </li>
+            <li>
+              <span className="text-slate-500">Sınıf öğretmeni: </span>
+              {sinifBilgisi.ogretmenIletisim}
+            </li>
+          </ul>
+        </section>
+
+        <QrShare />
       </div>
-
-      <div className="hidden w-72 shrink-0 border-l border-white/10 lg:block">
-        <ActivityLog entries={activityLog} />
-      </div>
-
-      {logOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
-          onClick={() => setLogOpen(false)}
-          aria-hidden="true"
-        />
-      )}
-      <aside
-        className={`fixed inset-y-0 right-0 z-40 w-72 max-w-[85vw] transform border-l border-white/10 transition-transform duration-200 ease-out lg:hidden ${
-          logOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        <ActivityLog entries={activityLog} />
-      </aside>
-
-      <VoicePicker
-        open={voicePickerOpen}
-        onClose={() => setVoicePickerOpen(false)}
-        voices={availableVoices}
-        selectedURI={selectedVoiceURI}
-        onSelect={(uri) => {
-          setSelectedVoiceURI(uri);
-          setVoicePickerOpen(false);
-        }}
-      />
-
-      <TaskPanel
-        open={tasksPanelOpen}
-        onClose={() => setTasksPanelOpen(false)}
-        tasks={tasks}
-        onAdd={handleAddTask}
-        onToggle={handleToggleTask}
-        onDelete={handleDeleteTask}
-      />
-
-      <MemoryPanel
-        open={memoryPanelOpen}
-        onClose={() => setMemoryPanelOpen(false)}
-        memory={memory}
-        onAdd={handleAddMemory}
-        onDelete={handleDeleteMemory}
-      />
-
-      <VoiceCallOverlay
-        active={callActive}
-        jarvisState={jarvisState}
-        hint={callHint}
-        onEnd={endCallMode}
-      />
     </main>
   );
 }
