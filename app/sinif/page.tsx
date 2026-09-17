@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Türk Maarif Koleji 8-A sınıfı duyuruları, ders programı ve iletişim bilgileri.",
 };
 
-const KAPTAN_ADI = "Kaptan adı buraya eklenecek";
+const KAPTAN_ADI = "Ayşe Ceren Yanardağ";
 
 const duyurular = [
   {
