@@ -50,6 +50,16 @@ npm start
 | ----------------------- | ---------------- | ------------------------------------------- |
 | `ANTHROPIC_MODEL`       | `claude-opus-5`  | Kullanılacak Claude modeli                  |
 | `ANTHROPIC_MAX_TOKENS`  | `16000`          | Yanıt başına maksimum token sayısı          |
+| `KALORI_MODEL`          | `claude-haiku-5-5` | Kalori sayfasının kullandığı Claude modeli |
+
+## Kalori (fotoğraftan kalori hesaplama)
+
+`/kalori` sayfasında yemeğin fotoğrafını çekersin, Claude yemekleri tanır ve her biri için porsiyon,
+kalori, protein, karbonhidrat ve yağ tahmini döner. "Bugüne ekle" ile günlük toplamı takip edebilirsin.
+
+- Fotoğraflar gönderilmeden önce tarayıcıda en fazla 1024 piksele küçültülür (daha ucuz ve hızlı).
+- Varsayılan model Claude Haiku 5.5'tir; isabet yetmezse `KALORI_MODEL` ile değiştirilebilir.
+- Günlük kayıt yalnızca tarayıcının `localStorage`'ında tutulur.
 
 ## Proje yapısı
 
